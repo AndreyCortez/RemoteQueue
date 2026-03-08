@@ -73,7 +73,8 @@ export default function Dashboard() {
         }
     };
 
-    const openQrCode = async (queueId: string, name: string) => {
+    const openQrCode = async (e: React.MouseEvent, queueId: string, name: string) => {
+        e.stopPropagation(); // Don't navigate to management page
         setQrQueueId(queueId);
         setQrQueueName(name);
         setQrBlobUrl(null);
@@ -84,8 +85,7 @@ export default function Dashboard() {
                 headers,
                 responseType: 'blob'
             });
-            const url = URL.createObjectURL(res.data);
-            setQrBlobUrl(url);
+            setQrBlobUrl(URL.createObjectURL(res.data));
         } catch {
             setQrBlobUrl(null);
         } finally {
@@ -153,10 +153,10 @@ export default function Dashboard() {
                     </form>
                 </div>
 
-                {/* QUEUE LIST */}
+                {/* QUEUE LIST — click row to manage, click button for QR */}
                 <div className="card">
                     <h2 className="heading-md">My Queues</h2>
-                    <p className="subtitle">Click a queue to view its QR Code</p>
+                    <p className="subtitle">Click a queue to manage it • QR button for QR Code</p>
                     {loadingQueues ? (
                         <div style={{ textAlign: 'center', padding: '20px' }}><span className="spinner" /></div>
                     ) : queues.length === 0 ? (
@@ -166,15 +166,23 @@ export default function Dashboard() {
                     ) : (
                         <ul className="queue-list" id="queue-list">
                             {queues.map(q => (
-                                <li key={q.id} className="queue-item" style={{ cursor: 'pointer' }}
-                                    onClick={() => openQrCode(q.id, q.name)}>
+                                <li key={q.id} className="queue-item"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => navigate(`/dashboard/queue/${q.id}`)}
+                                    data-testid={`queue-item-${q.id}`}
+                                >
                                     <div>
                                         <div className="queue-item-name">{q.name}</div>
                                         <div className="queue-item-schema">
                                             Fields: {Object.keys(q.form_schema).join(', ') || 'none'}
                                         </div>
                                     </div>
-                                    <button className="btn btn-secondary btn-sm" data-testid={`qr-btn-${q.id}`}>
+                                    <button
+                                        className="btn btn-secondary btn-sm"
+                                        data-testid={`qr-btn-${q.id}`}
+                                        onClick={(e) => openQrCode(e, q.id, q.name)}
+                                        title="View QR Code"
+                                    >
                                         QR Code
                                     </button>
                                 </li>
