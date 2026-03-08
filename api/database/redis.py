@@ -1,6 +1,6 @@
 import time
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import redis
 
 # Redis connection stub (in prod this should use settings.redis_url and connection pooling)
@@ -23,14 +23,9 @@ class QueueManager:
         """
         key = self.get_queue_key(tenant_id, queue_id)
         entry_score = time.time()
-        
-        # Serialize payloads safely. Not using pickle mitigates RCE risks.
-        payload = json.dumps(user_data, sort_keys=True) 
-        
-        # zadd with rank resolution is atomic relative to insertions
+        payload = json.dumps(user_data, sort_keys=True)
         self.redis.zadd(key, {payload: entry_score})
         position = self.redis.zrank(key, payload)
-        
         return position
 
     def get_position(self, tenant_id: str, queue_id: str, user_data: Dict[str, Any]) -> Optional[int]:
@@ -38,15 +33,89 @@ class QueueManager:
         key = self.get_queue_key(tenant_id, queue_id)
         payload = json.dumps(user_data, sort_keys=True)
         return self.redis.zrank(key, payload)
-        
+
     def call_next(self, tenant_id: str, queue_id: str) -> Optional[Dict[str, Any]]:
         """Pops the first user efficiently (lowest score/timestamp)."""
         key = self.get_queue_key(tenant_id, queue_id)
-        
-        # zpopmin removes and returns the smallest score element
         result = self.redis.zpopmin(key, count=1)
         if not result:
             return None
-            
         payload, _score = result[0]
         return json.loads(payload)
+
+    # ---- Queue Management Methods (Fase 1) ----
+
+    def list_members(self, tenant_id: str, queue_id: str) -> List[Dict[str, Any]]:
+        """Returns all queue members ordered by position with their data and join timestamp."""
+        key = self.get_queue_key(tenant_id, queue_id)
+        raw = self.redis.zrange(key, 0, -1, withscores=True)
+        members = []
+        for index, (payload, score) in enumerate(raw):
+            members.append({
+                "position": index,
+                "user_data": json.loads(payload),
+                "joined_at": score,
+                "raw_payload": payload
+            })
+        return members
+
+    def remove_member(self, tenant_id: str, queue_id: str, user_data: Dict[str, Any]) -> bool:
+        """Removes a specific member from the queue by their data. Returns True if removed."""
+        key = self.get_queue_key(tenant_id, queue_id)
+        payload = json.dumps(user_data, sort_keys=True)
+        removed_count = self.redis.zrem(key, payload)
+        return removed_count > 0
+
+    def reorder_member(self, tenant_id: str, queue_id: str, user_data: Dict[str, Any], target_position: int) -> bool:
+        """
+        Moves a member to a target position by recalculating their score.
+        Uses the average of adjacent members' scores to place precisely.
+        """
+        key = self.get_queue_key(tenant_id, queue_id)
+        payload = json.dumps(user_data, sort_keys=True)
+
+        current_rank = self.redis.zrank(key, payload)
+        if current_rank is None:
+            return False
+
+        all_members = self.redis.zrange(key, 0, -1, withscores=True)
+        total = len(all_members)
+
+        if target_position < 0 or target_position >= total:
+            return False
+
+        if target_position == 0:
+            first_score = all_members[0][1] if all_members[0][0] != payload else (all_members[1][1] if total > 1 else time.time())
+            new_score = first_score - 1.0
+        elif target_position >= total - 1:
+            last_score = all_members[-1][1] if all_members[-1][0] != payload else (all_members[-2][1] if total > 1 else time.time())
+            new_score = last_score + 1.0
+        else:
+            scores = [s for m, s in all_members if m != payload]
+            if target_position < len(scores):
+                before = scores[target_position - 1] if target_position > 0 else scores[0] - 2.0
+                after = scores[target_position]
+                new_score = (before + after) / 2.0
+            else:
+                new_score = scores[-1] + 1.0
+
+        self.redis.zadd(key, {payload: new_score})
+        return True
+
+    def clear_queue(self, tenant_id: str, queue_id: str) -> List[Dict[str, Any]]:
+        """Removes all members from the queue. Returns the members that were cleared."""
+        key = self.get_queue_key(tenant_id, queue_id)
+        raw = self.redis.zrange(key, 0, -1, withscores=True)
+        members = []
+        for payload, score in raw:
+            members.append({
+                "user_data": json.loads(payload),
+                "joined_at": score
+            })
+        self.redis.delete(key)
+        return members
+
+    def get_queue_size(self, tenant_id: str, queue_id: str) -> int:
+        """Returns the number of members in the queue."""
+        key = self.get_queue_key(tenant_id, queue_id)
+        return self.redis.zcard(key)
