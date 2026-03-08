@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Dict, Any
+import qrcode
+import io
 
 from api.dependencies.security import get_current_tenant_id
 from api.dependencies.websockets import manager as websocket_manager
@@ -83,5 +86,49 @@ async def call_next(
     user_data = manager.call_next(tenant_id, request.queue_id)
     if not user_data:
         raise HTTPException(status_code=404, detail="queue_is_empty")
-    await websocket_manager.broadcast_to_queue(request.queue_id, {"event": "queue_advanced"})
+    await websocket_manager.broadcast_to_queue(request.queue_id, {
+        "event": "queue_member_called",
+        "called": user_data
+    })
     return {"status": "user_called", "user_data": user_data}
+
+
+# ──────────────────────────────────────────────
+# Public Display Endpoints (no auth required)
+# ──────────────────────────────────────────────
+
+@router.get("/{queue_id}/status")
+def get_queue_status(
+    queue_id: str,
+    db: Session = Depends(get_db),
+    client=Depends(get_redis_client)
+):
+    """Public endpoint for display pages: returns live size and queue name."""
+    queue_config = db.query(QueueConfig).filter(QueueConfig.id == queue_id).first()
+    if not queue_config:
+        raise HTTPException(status_code=404, detail="Queue not found")
+    manager = QueueManager(client)
+    size = manager.get_queue_size(queue_config.tenant_id, queue_id)
+    return {
+        "queue_id": queue_id,
+        "name": queue_config.name,
+        "queue_size": size,
+        "last_called": None  # will be populated by WebSocket in practice
+    }
+
+
+@router.get("/{queue_id}/qrcode-public")
+def get_qrcode_public(queue_id: str, db: Session = Depends(get_db)):
+    """Public QR Code endpoint for display pages (no auth needed).
+    The QR links to the B2C join page with the queue ID.
+    """
+    queue_config = db.query(QueueConfig).filter(QueueConfig.id == queue_id).first()
+    if not queue_config:
+        raise HTTPException(status_code=404, detail="Queue not found")
+
+    join_url = f"/join?q={queue_id}"
+    qr = qrcode.make(join_url)
+    buf = io.BytesIO()
+    qr.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")

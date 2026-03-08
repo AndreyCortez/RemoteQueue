@@ -1,60 +1,82 @@
-# Guia de Integração Frontend (React B2B & B2C)
+---
+title: Integração Frontend (React B2B, B2C e Display Pages)
+description: Páginas implementadas, fluxo de autenticação, roteamento e contratos de API.
+tags: [react, typescript, vite, websocket, b2b, b2c]
+---
 
-A arquitetura do **Remote Queue** separa estritamente os domínios administrativos (B2B) dos públicos (B2C).
+# Integração Frontend
 
-## 1. Contexto e Segurança (B2B)
+O frontend é uma **SPA React/Vite/TypeScript** servida pelo Nginx. Separa estritamente os domínios B2B (operadores autenticados) e B2C + Display Pages (públicas, sem auth).
 
-Toda a gestão de filas ou criação de formulários requer que um Estabelecimento esteja logado. 
+## 1. Páginas Implementadas
 
-Para testes, utilize este Token Local JWT nas rotas abaixo:
-```json
-{
-  "x-tenant-token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZW5hbnRfaWQiOiJmNjZiOWVjMyI...etc"
-}
-```
-*Se houver `401 Unauthorized`, sua requisição foi vetada sumariamente pelo `security.py`.*
+| Rota | Componente | Auth | Público |
+|---|---|---|---|
+| `/login` | `Login.tsx` | ❌ | B2B |
+| `/dashboard` | `Dashboard.tsx` | ✅ JWT | B2B |
+| `/dashboard/queue/:id` | `QueueManagement.tsx` | ✅ JWT | B2B |
+| `/join?q=<id>` | `B2CJoin.tsx` | ❌ | B2C |
+| `/display/qr?q=<id>` | `QRDisplay.tsx` | ❌ | Tablet/Kiosk |
+| `/display/status?q=<id>` | `StatusDisplay.tsx` | ❌ | TV/Monitor |
 
-### A. Cadastrando Regras da Empresa (B2B)
-**`POST /api/v1/b2b/queues`**
+## 2. Autenticação B2B
 
-Ao configurar o sistema na loja, use esse endpoint. O atributo chave de poder do framework reside no campo **`form_schema`**.
-Ele ditam quais perguntas dinâmicas o celular do cliente final terá que responder para entrar na fila. O FastAPI bloqueará tipos errados caso o schema dite. Ex:
-```json
-{
-  "name": "Caixa Priority",
-  "form_schema": {
-    "paciente": "string",
-    "idade": "integer"
-  }
-}
+`AuthContext.tsx` gerencia o token JWT no `localStorage`:
+```typescript
+// chave: 'rq_access_token'
+const headers = getAuthHeaders(); // → { 'x-tenant-token': '<jwt>' }
 ```
 
-### B. Gerando Display do QR Code Mágico (B2B)
-**`GET /api/v1/b2b/queues/{queue_id}/qrcode`**
+`ProtectedRoute` redireciona para `/login` se não houver token. O token é lido no `useEffect` inicial via `axios.get('/api/v1/b2b/queues', { headers })`.
 
-O B2B só precisa apresentar essa imagem na tela do iPad. Um PNG é retornado como stream binário.
-O usuário sacará o celular e escanerá um Deep-Link parecido com: `https://app.remotequeue.com/join?q=uuid-da-fila`.
+## 3. Dashboard B2B (`Dashboard.tsx`)
 
-## 2. A Jornada do Cliente Final (B2C)
+- Lista filas do tenant via `GET /api/v1/b2b/queues`
+- Cria novas filas com `form_schema` customizado
+- Clicar em fila → navega para `/dashboard/queue/:id`
+- Botão "QR Code" abre modal com imagem carregada via `axios` como blob (necessário para passar `x-tenant-token` — `<img src>` não suporta headers customizados)
 
-O cliente chegou via QR code anônimo e quer entrar na fila.
+## 4. Gestão de Fila B2B (`QueueManagement.tsx`)
 
-### A. Discovery Público da Fila
-**`GET /api/v1/queue/{queue_id}`**
+- Tabela com posição, dados do formulário, hora de entrada
+- Ações: **Call Next**, **Remove**, **Reorder ▲▼**, **Clear All**
+- Banner "chamando agora" exibido ao chamar o próximo
+- **WebSocket**: se inscreve em `ws://.../queue/:id/ws` → refetch da lista a cada evento
 
-O App React consumirá este endpoint aberto primariamente para descobrir qual é o `nome` da fila e, crucialmente, extrair o `form_schema`. A partir do Schema, a UI deve iterar renderizando dinamicamente as `<inputs>` requeridas.
+## 5. Fluxo B2C (`B2CJoin.tsx`)
 
-### B. Pegar dados do formulário e Entrar na Fila
-**`POST /api/v1/queue/join`**
+1. `GET /api/v1/queue/{id}` → obtém `form_schema`
+2. Renderiza inputs dinamicamente com base no schema
+3. `POST /api/v1/queue/join` → recebe posição na fila
+4. WebSocket atualiza posição em tempo real:
+   ```typescript
+   ws.onmessage = (event) => {
+       const msg = JSON.parse(event.data);
+       if (msg.event === 'queue_member_called') {
+           setPosition(prev => prev === 0 ? null : prev - 1);
+       }
+   };
+   ```
 
-Nenhum cookie ou auth B2C formal por enquanto. Mande os form inputs empacotados em `user_data` que respeite o schema acima. O backend joga o cliente atômicamente no fim do `Redis ZSET`.
+## 6. Páginas de Display Públicas
 
-### C. Atualizações Em Tempo Real c/ WebSockets
-**`ws://{URL_BASE}/api/v1/queue/{queue_id}/ws`**
+### QRDisplay (`/display/qr?q=<id>`)
+- Tela cheia para tablets/kiosks
+- QR Code carregado via `GET /api/v1/queue/{id}/qrcode-public` (sem auth)
+- Contador ao vivo via WebSocket
+- Fundo escuro premium com gradientes
 
-**Extremamente Importante**: O React do cliente DEVE instanciar este WebSocket ao entrar na fila (Nginx proxy cuidará de `wss://` para `ws://`). 
-Sempre que nosso atendente B2B chamar `call-next`, este WebSocket enviará o evento assíncrono para todo mundo:
+### StatusDisplay (`/display/status?q=<id>`)
+- TV display com quem foi chamado (flash animado verde)
+- Histórico das últimas 5 chamadas com timestamps
+- Contador grande da fila
+- Evento WebSocket `queue_member_called` com dados do usuário
+
+## 7. Evento WebSocket — Contratos
+
 ```json
-{ "event": "queue_advanced" }
+// Emitido quando call-next é acionado
+{ "event": "queue_member_called", "called": { "nome": "João", "...": "..." } }
 ```
-Se você receber isso em um `useEffect` Hook no React, execute a dedução otimista ou requisição REST para atualizar o `<span id="current-position">`.
+
+O frontend **não paga** com polling — toda atualização é push via WebSocket.

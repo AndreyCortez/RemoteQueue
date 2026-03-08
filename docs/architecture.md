@@ -1,67 +1,79 @@
 ---
-title: Arquitetura de Software e Segurança
-description: Detalhamento da Stack (Flutter, FastAPI, Postgres, Redis) e defesa cibernética (IDOR/Injections).
-tags: [architecture, flutter, fastapi, security, saas]
+title: Arquitetura Geral — Remote Queue SaaS
+description: Stack tecnológica, fluxos B2B/B2C, segurança multi-tenant e estrutura de deployment.
+tags: [architecture, fastapi, react, security, saas, docker]
 ---
 
-# Arquitetura SaaS - Fila Remota
+# Arquitetura — Remote Queue SaaS
 
-O sistema de Fila Remota é um **SaaS Multi-tenant**, construído especificamente para suportar picos de alto tráfego originados de usuários escaneando QR Codes simultaneamente em diversos locais físicos de múltiplas empresas (Tenants).
+Sistema **multi-tenant** baseado em QR Code para gestão de filas físicas.
 
 ## 1. Stack Tecnológica
 
-*   **Frontend Unificado (Flutter Web):** 
-    Tanto o Painel do Estabelecimento (B2B - Desktop/Tablet) quanto o fluxo do Cliente Final (B2C - Mobile PWA) compartilham a mesma base de código em Flutter. Utiliza-se um sistema robusto de Roteamento para separar as áreas e proteger o painel B2B sob forte autenticação.
-*   **Backend (Python + FastAPI):**
-    A espinha dorsal de validação. O FastAPI lidará com requisições assíncronas e hospedará WebSockets em tempo real para enviar o "Tempo Estimado / Posição" sem sobrecarregar a rede com _polling_.
-*   **Banco de Dados (PostgreSQL):**
-    O "Source of Truth". Todo cadastro sistêmico, autenticação de estabelecimentos e dados passados residem aqui. Modelos sensíveis usarão RLS (Row-Level Security) ou escopo explícito em queries para isolamento multi-tenant.
-*   **Tratamento Efêmero (Redis):**
-    O cálculo de quem está na frente de quem será inteiramente gerenciado na memória via Redis. O PostgreSQL só será notificado quando uma métrica final for consolidada, tirando o peso transacional do banco.
+| Camada | Tecnologia | Responsabilidade |
+|---|---|---|
+| **Frontend** | React 18 + Vite + TypeScript | Painel B2B, join B2C, displays públicos |
+| **Backend** | Python 3.12 + FastAPI | API REST + WebSockets assíncronos |
+| **Banco Relacional** | PostgreSQL 15 | Source of truth: tenants, usuários, configurações, auditoria |
+| **Fila em Memória** | Redis (ZSET) | Fila efêmera em tempo real, posicionamento O(log N) |
+| **Proxy / SSL** | Nginx | Roteamento `/api/v1 → backend`, `/→ frontend`, `wss://` |
+| **Infra** | Docker Compose | Ambiente reproduzível: backend, frontend, postgres, redis, nginx |
 
-## 2. Foco Extremo em Segurança
+## 2. Separação de Domínios
 
-As seguintes diretrizes são inegociáveis. Toda implementação do código deve segui-las rigidamente.
-
-### A. Prevenção de IDOR (Insecure Direct Object Reference)
-Em um SaaS, o pior cenário é o Cliente A conseguir gerenciar ou ver a fila do Cliente B. Todo endpoint logado exigirá um "Injetor de Tenant", garantindo que as modificações de banco forcem um contexto implícito do dono daquele recurso (`WHERE tenant_id = X`).
-
-#### Exemplo de Defesa de IDOR (Fase de Raciocínio - Comentada)
-```python
-# fastapi_dependencies_reasoning.py
-from fastapi import HTTPException, Header, Depends
-
-def get_current_tenant_id(x_tenant_token: str = Header(...)) -> str:
-    # 1. We aggressively validate the integrity of the JWT token.
-    # 2. Extract the tenant ID bounds within it securely.
-    decoded_tenant_id = decode_and_verify_jwt(x_tenant_token)
-    
-    # 3. If missing, we fatally halt the request before hitting the domain logic.
-    if not decoded_tenant_id:
-        raise HTTPException(status_code=401, detail="tenant_identity_compromised")
-        
-    # 4. We return the validated ID so endpoints can chain it strictly
-    # in their SQL where statements ensuring explicit Isolation. 
-    return decoded_tenant_id
+```
+Domínio B2B (operadores autenticados)     Domínio B2C (clientes finais — anônimos)
+──────────────────────────────────────    ───────────────────────────────────────
+/login          → Login JWT               /join?q=<id>   → Formulário dinâmico
+/dashboard      → Listar filas, criar     /display/qr    → QR Code fullscreen (tablet)
+/dashboard/     → Gestão de fila           /display/status→ Status TV (quem foi chamado)
+  queue/:id       (call-next, remove…)
 ```
 
-#### Exemplo de Defesa de IDOR (Fase Clean/Final - Sem Comentários)
-```python
-# fastapi_dependencies.py
-from fastapi import HTTPException, Header
+## 3. Fluxo B2B (Operador)
 
+1. Operador faz login → recebe JWT com `tenant_id` embutido
+2. Cria filas com `form_schema` customizado (JSON: campo→tipo)
+3. Gera QR Code da fila → exibe em tablet/kiosk (`/display/qr`)
+4. Monitora e gerencia fila em `/dashboard/queue/:id`:
+   - Vê lista de membros em tempo real (WebSocket)
+   - Chama próximo → broadcast `queue_member_called` via WebSocket
+   - Remove, reordena, limpa fila
+
+## 4. Fluxo B2C (Cliente Final)
+
+1. Cliente escaneia QR → abre `/join?q=<queue_id>` no celular
+2. Frontend busca `form_schema` e renderiza inputs dinamicamente
+3. Cliente preenche e entra (`POST /queue/join`) → posição retornada
+4. WebSocket atualiza posição em tempo real até ser chamado
+
+## 5. Segurança Multi-Tenant
+
+### 5.1 Prevenção de IDOR
+Todo endpoint B2B usa `Depends(get_current_tenant_id)` que:
+1. Extrai e valida o JWT do header `x-tenant-token`
+2. Retorna o `tenant_id` verificado
+3. Endpoints filtram queries com `WHERE tenant_id = :tenant_id`
+
+```python
+# api/dependencies/security.py
 def get_current_tenant_id(x_tenant_token: str = Header(...)) -> str:
-    decoded_tenant_id = decode_and_verify_jwt(x_tenant_token)
-    if not decoded_tenant_id:
+    payload = jwt.decode(x_tenant_token, settings.tenant_secret_key, algorithms=[settings.algorithm])
+    tenant_id = payload.get("tenant_id")
+    if not tenant_id:
         raise HTTPException(status_code=401, detail="tenant_identity_compromised")
-    return decoded_tenant_id
+    return tenant_id
 ```
 
-### B. Proteção do Formulário Dinâmico (Anti-Injection/XSS)
-O estabelecimento define, via Painel B2B, o esquema do seu próprio formulário (ex: "Quero nome, CPF e Idade").
-Estes itens são salvos em formato `JSONB`. 
-1. **Frontend (B2C):** O Flutter desenha a tela lendo o JSON, blindando nativamente contra execução de scripts embutidos nas strings do formulário via rendering (anti-XSS).
-2. **Backend:** As respostas digitadas pelo cliente final B2C vão passar por uma validação estrita (Pydantic com regex whitelist) antes de serem validadas e escritas, mitigando eventuais injecções NoSQL ou comportamentos anômalos.
+### 5.2 Anti-Injection no Form Schema
+- Backend valida `user_data` contra `form_schema` usando tipagem estrita
+- Nenhum eval/exec — dados são serializados via `json.dumps` com tipos primitivos
+- Formulários dinâmicos renderizados via React (XSS nativo bloqueado pelo DOM)
 
----
-**Nota de Risco Residual:** Ao expor rotas de WebSockets não autenticadas para o cliente B2C (que apenas escaneia o QR Code anonimamente sem login), estamos abertos a potenciais exaustões de recursos se um bot mal intencionado abrir milhares de sockets num Rate Limit fraco. A infraestrutura do Nginx precisará contar com defesas rigorosas de limites de conexões simultâneas por IP.
+### 5.3 Risco Residual: Rate Limit em WebSockets
+WebSockets B2C são públicos (sem auth). O Nginx deve configurar:
+```nginx
+limit_conn_zone $binary_remote_addr zone=ws_limit:10m;
+limit_conn ws_limit 20;
+```
+Isso limita 20 conexões simultâneas por IP, bloqueando bots de exaustão.

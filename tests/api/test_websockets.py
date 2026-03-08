@@ -51,7 +51,9 @@ def test_websocket_broadcast_on_call_next(client: TestClient, db_session, overri
         
         # 3. Assert our listening websocket received the broadcast payload immediately
         data = websocket.receive_json()
-        assert data == {"event": "queue_advanced"}
+        assert data["event"] == "queue_member_called"
+        assert "called" in data
+        assert data["called"]["name"] == "Alice"
 
 def test_websocket_disconnect_prunes_active_list(client: TestClient):
     with client.websocket_connect("/api/v1/queue/prune_queue/ws") as websocket:

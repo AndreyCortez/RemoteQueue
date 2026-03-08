@@ -4,6 +4,8 @@ import B2CJoin from './pages/B2CJoin';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import QueueManagement from './pages/QueueManagement';
+import QRDisplay from './pages/QRDisplay';
+import StatusDisplay from './pages/StatusDisplay';
 
 function App() {
     return (
@@ -27,6 +29,9 @@ function App() {
                     <Route path="/dashboard/queue/:queueId" element={
                         <ProtectedRoute><QueueManagement /></ProtectedRoute>
                     } />
+                    {/* Public display pages — no auth needed, for tablets/TVs */}
+                    <Route path="/display/qr" element={<QRDisplay />} />
+                    <Route path="/display/status" element={<StatusDisplay />} />
                 </Routes>
             </BrowserRouter>
         </AuthProvider>

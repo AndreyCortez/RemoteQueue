@@ -1,69 +1,95 @@
 ---
-title: Esquema de Banco de Dados
-description: Estrutura relacional no PostgreSQL e modelo de uso do Redis na Fila Remota.
-tags: [database, postgres, redis, jsonb, schema]
+title: Esquema de Banco de Dados — PostgreSQL e Redis
+description: Modelos SQLAlchemy, estratégia de auditoria com QueueEntry e estrutura de ZSET no Redis.
+tags: [database, postgres, redis, sqlalchemy, schema]
 ---
 
-# Design de Dados Persistentes e Efêmeros
+# Design de Dados — PostgreSQL e Redis
 
-O SaaS foi projetado com uma divisão rígida entre aquilo que precisa de garantias transacionais e aquilo que precisa apenas de velocidade.
+## PostgreSQL (Source of Truth)
 
-## PostgreSQL (Source of Truth Relacional)
+### Modelos SQLAlchemy (em `api/database/models.py`)
 
-O banco relacionará rigidamente os domínios para aplicar o bloqueio central de IDOR.
+```
+┌─────────────┐       ┌─────────────┐       ┌─────────────────┐
+│   tenants   │──1:N──│  b2b_users  │       │  queue_configs  │
+│─────────────│       │─────────────│       │─────────────────│
+│ id (UUID)   │       │ id (UUID)   │       │ id (UUID)       │
+│ name        │       │ tenant_id ──┤──FK──▶│ tenant_id (FK)  │
+└─────────────┘       │ email       │       │ name            │
+       │              │ hashed_pass │       │ form_schema JSON│
+       └──────────────┴─────────────┘       └────────┬────────┘
+                                                      │
+                                               1:N    │
+                                            ┌─────────▼────────┐
+                                            │  queue_entries   │
+                                            │──────────────────│
+                                            │ id (UUID)        │
+                                            │ queue_id (FK)    │
+                                            │ tenant_id (FK)   │
+                                            │ user_data (JSON) │
+                                            │ status (str)     │
+                                            │ created_at       │
+                                            └──────────────────┘
+```
 
-### Modelos Base de Multi-tenância (Usam UUIDs Seguros)
-*   `tenants` (Estabelecimentos PIS/CNPJ): Contém nome e atuam como isolador matriz.
-*   `b2b_users`: Operadores submissos a um `tenant`.
-*   `queue_configs` (Filas configuradas): Estabelecimento pode ter fila "Caixa 1", "Balcão". Aqui estará o campo em `JSONB` definindo o Schema do Formulário obrigatório exigido aos clientes B2C (ex: `{"nome": "string", "documento": "string"}`).
-*   `queue_history`: Consolidado morto (tempo que as pessoas ficaram) de todas ações, gravado assincronamente (Worker) puramente para cruzamento e geração de dashboards analíticos dos clientes B2B.
+### `queue_configs.form_schema` — Formulário Dinâmico
+
+```json
+// Exemplo: fila com 2 campos
+{ "nome": "string", "numero_senha": "integer" }
+```
+O backend valida `user_data` dos clientes B2C contra esse schema antes de inserir na fila Redis.
+
+### `queue_entries` — Histórico de Auditoria
+
+Toda vez que um membro sai da fila (chamado ou removido), um registro é gravado:
+
+```python
+# Status possíveis: 'called', 'removed'
+entry = QueueEntry(
+    queue_id=queue_id,
+    tenant_id=tenant_id,
+    user_data=user_data,   # JSON dos dados do formulário
+    status="called"        # ou "removed"
+)
+```
+
+Isso permite futuros dashboards analíticos (tempo médio de espera, pico de horário, etc).
 
 ## Redis (Orquestrador de Filas em Tempo Real)
 
-A natureza de uma fila é volátil: pessoas entram, desistem, ou são chamadas a todo segundo.
-Escrever e reescrever as posições "1, 2, 3" e recalcular ordenação de 500 pessoas no Postgres a cada 5 segundos travaria o banco do SaaS com _Locks_.
-O Redis utiliza o tipo `Sorted Set (ZSET)` onde o *score* é o *timestamp* exato de entrada do cliente final, garantindo processamento temporal O(log(N)) para descobrir em milissegundos quem é o próximo e a posição exata, mesmo sob forte estresse.
+### Estrutura da Chave
 
-### Estrutura de Inserção na Fila Redis
-
-#### Código: Fase de Raciocínio Python (Comentários de Segurança e Lógica)
-```python
-# redis_queue_reasoning.py
-import time
-import json
-
-def insert_user_into_queue(redis_client, tenant_id: str, queue_id: str, user_data: dict) -> int:
-    # 1. We compose a deterministic key strictly bound to the tenant to isolate data entirely.
-    redis_key = f"tenant:{tenant_id}:queue:{queue_id}"
-    
-    # 2. Extract crucial timestamp mapping O(log(n)) sorting behavior natively in Redis.
-    entry_score = time.time()
-    
-    # 3. Serialize user data securely without dangerous pickle dependencies (prevent deserialization exploits).
-    serialized_payload = json.dumps(user_data)
-    
-    # 4. Atomically insert into the sorted set representing our live queue instance.
-    redis_client.zadd(redis_key, {serialized_payload: entry_score})
-    
-    # 5. Native zrank calculates precisely the 0-indexed position immediately.
-    current_position = redis_client.zrank(redis_key, serialized_payload)
-    
-    return current_position + 1
+```
+tenant:{tenant_id}:queue:{queue_id}  →  Sorted Set (ZSET)
 ```
 
-#### Código: Fase Final de Produção (Sem Comentários)
-```python
-# redis_queue.py
-import time
-import json
+O `score` é o `time.time()` no momento da entrada — garante ordenação FIFO com resolução de microsegundos.
 
-def insert_user_into_queue(redis_client, tenant_id: str, queue_id: str, user_data: dict) -> int:
-    redis_key = f"tenant:{tenant_id}:queue:{queue_id}"
-    entry_score = time.time()
-    serialized_payload = json.dumps(user_data)
-    
-    redis_client.zadd(redis_key, {serialized_payload: entry_score})
-    current_position = redis_client.zrank(redis_key, serialized_payload)
-    
-    return current_position + 1
+### Operações Implementadas em `QueueManager`
+
+| Método | Redis Op | Complexidade |
+|---|---|---|
+| `join_queue` | `ZADD` + `ZRANK` | O(log N) |
+| `get_position` | `ZRANK` | O(log N) |
+| `call_next` | `ZPOPMIN` | O(log N) |
+| `list_members` | `ZRANGE WITHSCORES` | O(N) |
+| `remove_member` | `ZREM` | O(log N) |
+| `reorder_member` | `ZREM` + `ZADD` | O(log N) |
+| `clear_queue` | `DELETE` | O(1) |
+| `get_queue_size` | `ZCARD` | O(1) |
+
+### Isolamento Multi-Tenant
+
+O namespace `tenant:{tenant_id}:queue:{queue_id}` garante que duas filas com o mesmo `queue_id` de tenants diferentes **nunca colidam** no Redis. IDOR impossível a nível de banco efêmero.
+
+## Sessão de Banco para Testes
+
+```python
+# tests/conftest.py — SQLite in-memory com StaticPool
+_test_engine = create_engine("sqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool)
+# fixture autouse → cria e dropa tabelas entre cada teste
 ```
