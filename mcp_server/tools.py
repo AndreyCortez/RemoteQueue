@@ -1,12 +1,20 @@
 import os
 import re
 import subprocess
+import fnmatch
 from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
-from utils import docs_dir, get_safe_path
+from utils import docs_dir, get_safe_path, project_root
 
 max_lines = 300
 max_staleness_days = 90
+
+excluded_patterns = [
+    "*/__pycache__/*",
+    "*/.venv/*",
+    "*/.git/*",
+    "*/node_modules/*",
+]
 
 def count_lines(file_path: str) -> int:
     with open(file_path, "r", encoding="utf-8") as file:
@@ -107,3 +115,58 @@ def setup_tools(mcp: FastMCP) -> None:
             health_report.append("\nwarning_critical_alerts_detected")
             
         return "\n".join(health_report)
+
+    @mcp.tool()
+    def audit_zombie_files() -> str:
+        report_lines = []
+        report_lines.append("--- zombie_audit_report ---")
+
+        scan_dirs = ["api", "mcp_server", "scripts"]
+        all_project_files = []
+
+        for scan_dir in scan_dirs:
+            target_dir = os.path.join(project_root, scan_dir)
+            if not os.path.isdir(target_dir):
+                continue
+            for root, _, files in os.walk(target_dir):
+                rel_root = os.path.relpath(root, project_root)
+                if any(fnmatch.fnmatch(rel_root + "/x", pat) for pat in excluded_patterns):
+                    continue
+                for file in files:
+                    if file.endswith(".py"):
+                        full_path = os.path.join(root, file)
+                        all_project_files.append(full_path)
+
+        file_contents_cache = {}
+        for file_path in all_project_files:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    file_contents_cache[file_path] = f.read()
+            except Exception:
+                file_contents_cache[file_path] = ""
+
+        for file_path in all_project_files:
+            module_name = os.path.splitext(os.path.basename(file_path))[0]
+
+            if module_name in ("__init__", "main", "conftest", "server"):
+                continue
+
+            is_referenced = False
+            for other_path, content in file_contents_cache.items():
+                if other_path == file_path:
+                    continue
+                if re.search(rf'\b{re.escape(module_name)}\b', content):
+                    is_referenced = True
+                    break
+
+            staleness = get_staleness_days(file_path)
+            status = "referenced" if is_referenced else "orphan"
+            relative_path = os.path.relpath(file_path, project_root)
+
+            if not is_referenced:
+                report_lines.append(f"{relative_path} | age: {staleness}_days | status: {status}")
+
+        if len(report_lines) == 1:
+            report_lines.append("no_orphans_detected")
+
+        return "\n".join(report_lines)
