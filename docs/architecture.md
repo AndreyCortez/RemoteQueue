@@ -13,11 +13,11 @@ Sistema **multi-tenant** baseado em QR Code para gestão de filas físicas.
 | Camada | Tecnologia | Responsabilidade |
 |---|---|---|
 | **Frontend** | React 18 + Vite + TypeScript | Painel B2B, join B2C, displays públicos |
-| **Backend** | Python 3.12 + FastAPI | API REST + WebSockets assíncronos |
+| **Proxy / SPA** | Nginx (`frontend/Dockerfile.web`) | Hospeda React estático e faz reverse proxy de rotas `/api/*` e WebSockets pro Backend |
+| **Backend** | Python 3.12 + FastAPI (`Dockerfile.backend`) | API REST + WebSockets assíncronos (Isolado da rede pública) |
 | **Banco Relacional** | PostgreSQL 15 | Source of truth: tenants, usuários, configurações, auditoria |
 | **Fila em Memória** | Redis (ZSET) | Fila efêmera em tempo real, posicionamento O(log N) |
-| **Proxy / SSL** | Nginx | Roteamento `/api/v1 → backend`, `/→ frontend`, `wss://` |
-| **Infra** | Docker Compose | Ambiente reproduzível: backend, frontend, postgres, redis, nginx |
+| **Infra & Dev** | Docker Compose + Scripts | Ambientes (`docker-compose.yml`), deploy de testes limpo (`scripts/manual_test.sh`) |
 
 ## 2. Separação de Domínios
 

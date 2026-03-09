@@ -65,11 +65,24 @@ wait_for_service "Backend API" "$BACKEND_URL/"
 # 4. Seed test data
 # -------------------------------------------------------------------
 log_info "Executando seed de dados de teste..."
-SEED_RESPONSE=$(curl -sf -X POST "$BACKEND_URL/api/v1/test/seed" 2>&1) || {
-    log_warn "Seed endpoint não disponível ou falhou — pode ser que já exista seed. Continuando..."
-    SEED_RESPONSE="(skipped)"
+
+TEST_EMAIL="admin@b2b.com"
+TEST_PASSWORD="password123"
+
+SEED_RESPONSE=$(curl -sf -X POST "$BACKEND_URL/api/v1/test/seed-b2b" \
+    -H "Content-Type: application/json" \
+    -d "{\"tenant_name\": \"Test Company\", \"email\": \"$TEST_EMAIL\", \"password\": \"$TEST_PASSWORD\"}" 2>&1) || {
+    log_warn "Falha ao executar seed. Continuando..."
+    SEED_RESPONSE=""
 }
-log_ok "Seed: $SEED_RESPONSE"
+
+if [[ "$SEED_RESPONSE" == *"already_exists"* ]]; then
+    log_ok "Seed: Usuário de teste já existe."
+elif [[ "$SEED_RESPONSE" == *"created"* ]]; then
+    log_ok "Seed: Usuário de teste criado com sucesso."
+else
+    log_warn "Seed: Falha ou resposta inesperada: $SEED_RESPONSE"
+fi
 
 # -------------------------------------------------------------------
 # 5. Print summary
@@ -82,6 +95,10 @@ echo ""
 echo -e "  Backend API:  ${CYAN}$BACKEND_URL${NC}"
 echo -e "  Frontend:     ${CYAN}$FRONTEND_URL${NC}"
 echo -e "  API Docs:     ${CYAN}$BACKEND_URL/docs${NC}"
+echo ""
+echo -e "  ${YELLOW}Credenciais de Teste B2B:${NC}"
+echo -e "  Email:    ${CYAN}$TEST_EMAIL${NC}"
+echo -e "  Password: ${CYAN}$TEST_PASSWORD${NC}"
 echo ""
 echo -e "  ${YELLOW}Para parar:${NC} docker compose down -v"
 echo -e "  ${YELLOW}Ver logs:${NC}  docker compose logs -f backend"

@@ -40,9 +40,9 @@ Sistema de fila remota **multi-tenant** baseado em QR Code. Estabelecimentos B2B
    - Contratos de API e eventos WebSocket
 
 5. **[Deploy e Contêineres](deployment.md)**
-   - docker-compose com backend, frontend, postgres, redis, nginx
-   - Variáveis de ambiente por ambiente (dev/prod)
-   - Como rodar localmente e no VPS
+   - Scripts idempotentes para simular Produção (`scripts/manual_test.sh`)
+   - Estrutura isolation/bridge (Frontend SPA+Proxy -> Backend isolado -> Postgres/Redis)
+   - Configuração de Proxy no Nginx para WebSockets e `/api`
 
 6. **[Roadmap — Próximos Passos](roadmap.md)**
    - Fases 3 e 4 detalhadas

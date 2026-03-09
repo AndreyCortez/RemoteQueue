@@ -10,64 +10,26 @@ O SaaS multi-tenant emprega a filosofia estrita de configuração declarativa. O
 
 ## Docker Compose: A Planta Baixa da Infraestrutura
 
-O ambiente de Produção e o ambiente de Staging espelham as mesmas estruturas base. A arquitetura exige no mínimo as seguintes gavetas de isolamento (Containers):
-1.  **FastAPI Backend** (Aplicação Python Exposta em rede restrita).
-2.  **Flutter Web Nginx** (Asset estático compilado sendo hospedado passivamente).
-3.  **Postgres** (Persistência Mapeada para um Disco real).
-4.  **Redis** (In-Memory, estritamente trancado via networking de docker bridge).
+A arquitetura exige os seguintes containers operando na mesma rede virtual privada (`bridge`):
+1. **FastAPI Backend (`remotequeue-backend`)**: Aplicação Python 3.12 (slim) não exposta diretamente.
+2. **React SPA + Nginx (`remotequeue-frontend`)**: Compila a interface B2B e B2C. Serve estáticos e atua como **Reverse Proxy**. Todas as rotas `/api/*` e conexões WebSockets são repassadas para o Backend, garantindo isolamento.
+3. **Postgres**: Driver de dados persistentes.
+4. **Redis**: Cache In-Memory temporário para filas e pub/sub.
+
+### Scripts de Desenvolvimento (`manual_test.sh`)
+
+Para simular o ambiente rigorosamente como em Produção, estruturamos o script `scripts/manual_test.sh`.
+
+Este é o padrão de deploy para testes locais:
+1. Destrói volumes e recursos residuais (`docker compose down -v`).
+2. Faz o build rigoroso dos serviços locais (FastAPI e Vite/React) do zero.
+3. Aguarda por dependências e faz o seeding automático (`/api/v1/test/seed-b2b`) para provisionamento de dados teste sem cliques manuais.
+4. Entrega a aplicação completamente pronta nos endereços locais (`localhost:3000` / `localhost:8001`).
 
 ### Restrição de Networking Interno (Segurança)
-Bancos de Dados não podem, em hipótese alguma, ter suas portas mapeadas publicamente para o Host (ex: `0.0.0.0:5432`). O tráfego ocorrerá fundamentalmente apenas dentro do espectro Docker isolado via ponte.
 
-#### Configuração de Deploy - Fase de Raciocínio (Comentada)
-```yaml
-# docker-compose.reasoning.yml
-version: "3.8"
-services:
-  api:
-    image: remote_queue_api:latest
-    # 1. API talks to Postgres using explicit container hostnames, resolving inside the bridge.
-    environment:
-      - DATABASE_URL=postgresql://user:pass@postgres_db:5432/saas
-    # 2. We only expose the API port 8000 externally for NGINX/Traefik reverse proxy ingestion.
-    ports:
-      - "8000:8000"
-      
-  postgres_db:
-    image: postgres:15-alpine
-    # 3. SECURITY: Deliberately excluding 'ports' configuration physically blocks 
-    # the internet from probing port 5432 natively. Absolutely critical for databases.
-    environment:
-      - POSTGRES_PASSWORD=pass
-      - POSTGRES_DB=saas
-    # 4. Hard mount the disk volume preventing catastrophic wipe during upgrades.
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+Bancos de Dados não podem, em hipótese alguma, ter suas portas mapeadas publicamente para o Host (ex: `0.0.0.0:5432`). O tráfego ocorrerá fundamentalmente apenas dentro do espectro Docker isolado via ponte. Apenas os containers de aplicação e proxy conversam com os bancos.
 
-volumes:
-  pgdata:
-```
+### Estrutura do Proxy (`frontend/nginx.conf`)
 
-#### Configuração de Deploy - Produção Clean (Sem Comentários)
-```yaml
-# docker-compose.yml
-version: "3.8"
-services:
-  api:
-    image: remote_queue_api:latest
-    environment:
-      - DATABASE_URL=postgresql://user:pass@postgres_db:5432/saas
-    ports:
-      - "8000:8000"
-      
-  postgres_db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_PASSWORD=pass
-      - POSTGRES_DB=saas
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
-```
+Para resolver problemas de CORS e SPA routing (Fallback 404), o contêiner frontend possui um arquivo `nginx.conf` fixo. Ele instrui rotas como `/api` a usarem `proxy_pass http://backend:8000;`, inclusive herdando os headers necessários de "Upgrade" para sustentar WebSockets em produção adequadamente.
