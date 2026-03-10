@@ -13,7 +13,7 @@ export default tseslint.config(
       parserOptions: {
         ecmaFeatures: { jsx: true },
         project: "./tsconfig.json",
-        tsconfigRootDir: import.meta.dirname,
+        tsconfigRootDir: new URL('.', import.meta.url).pathname,
       },
       globals: {
         window: "readonly",
