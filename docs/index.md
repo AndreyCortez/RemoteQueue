@@ -44,7 +44,12 @@ Sistema de fila remota **multi-tenant** baseado em QR Code. Estabelecimentos B2B
    - Estrutura isolation/bridge (Frontend SPA+Proxy -> Backend isolado -> Postgres/Redis)
    - Configuração de Proxy no Nginx para WebSockets e `/api`
 
-6. **[Roadmap — Próximos Passos](roadmap.md)**
+6. **[Guia de Testes (E2E e Unitários)](testing.md)**
+   - Execução Pytest e cobertura de endpoints
+   - Testes Playwright num ecossistema Containerizado
+   - Isolamento de estado, UUIDs e wipe do Redis
+
+7. **[Roadmap — Próximos Passos](roadmap.md)**
    - Fases 3 e 4 detalhadas
    - Débitos técnicos e melhorias de infraestrutura
 

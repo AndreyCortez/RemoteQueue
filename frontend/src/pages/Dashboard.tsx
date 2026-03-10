@@ -22,6 +22,8 @@ export default function Dashboard() {
 
     const [queueName, setQueueName] = useState('');
     const [schemaFields, setSchemaFields] = useState<SchemaField[]>([{ name: '', type: 'string' }]);
+    const [qrRotationEnabled, setQrRotationEnabled] = useState(false);
+    const [qrRotationInterval, setQrRotationInterval] = useState<number>(300);
     const [createError, setCreateError] = useState<string | null>(null);
     const [createSuccess, setCreateSuccess] = useState<string | null>(null);
     const [queues, setQueues] = useState<QueueConfig[]>([]);
@@ -63,10 +65,17 @@ export default function Dashboard() {
             form_schema[field.name.trim()] = field.type;
         }
         try {
-            await axios.post(`${API_BASE}/b2b/queues`, { name: queueName, form_schema }, { headers });
+            await axios.post(`${API_BASE}/b2b/queues`, { 
+                name: queueName, 
+                form_schema,
+                qr_rotation_enabled: qrRotationEnabled,
+                qr_rotation_interval: qrRotationInterval
+            }, { headers });
             setCreateSuccess(`Queue "${queueName}" created successfully!`);
             setQueueName('');
             setSchemaFields([{ name: '', type: 'string' }]);
+            setQrRotationEnabled(false);
+            setQrRotationInterval(300);
             fetchQueues();
         } catch (err: any) {
             setCreateError(err.response?.data?.detail || 'Failed to create queue.');
@@ -148,6 +157,34 @@ export default function Dashboard() {
                             <button type="button" className="btn btn-secondary btn-sm"
                                 onClick={addSchemaField} id="add-field-btn">+ Add Field</button>
                         </div>
+
+                        <div className="form-group" style={{ marginTop: '16px' }}>
+                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={qrRotationEnabled} 
+                                    onChange={e => setQrRotationEnabled(e.target.checked)} 
+                                />
+                                Habilitar QR Code Rotativo (Anti-Fraude)
+                            </label>
+                            {qrRotationEnabled && (
+                                <div style={{ marginTop: '8px' }}>
+                                    <label className="form-label" htmlFor="qr-interval">Intervalo de Rotação</label>
+                                    <select 
+                                        id="qr-interval"
+                                        className="form-select" 
+                                        value={qrRotationInterval} 
+                                        onChange={e => setQrRotationInterval(Number(e.target.value))}
+                                    >
+                                        <option value={30}>30 Segundos</option>
+                                        <option value={60}>1 Minuto</option>
+                                        <option value={300}>5 Minutos</option>
+                                        <option value={900}>15 Minutos</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+
                         <button id="create-queue-submit" className="btn btn-primary btn-full"
                             type="submit" style={{ marginTop: '20px' }}>Create Queue</button>
                     </form>

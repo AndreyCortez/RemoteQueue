@@ -43,6 +43,9 @@ class QueueConfig(Base):
     # JSON schema defining required fields from B2C users (e.g. {"name": "string", "cpf": "string"})
     form_schema = Column(JSON, nullable=False, default={})
 
+    qr_rotation_enabled = Column(Boolean, nullable=False, default=False)
+    qr_rotation_interval = Column(Integer, nullable=False, default=300)
+
     tenant = relationship("Tenant", back_populates="queues")
 
 class QueueEntry(Base):

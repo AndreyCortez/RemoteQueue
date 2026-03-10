@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import qrcode
 import io
@@ -15,11 +15,15 @@ router = APIRouter(prefix="/api/v1/b2b/queues", tags=["B2B Queue Setup"])
 class QueueConfigCreate(BaseModel):
     name: str
     form_schema: Dict[str, Any]
+    qr_rotation_enabled: bool = False
+    qr_rotation_interval: int = 300
 
 class QueueConfigResponse(BaseModel):
     id: str
     name: str
     form_schema: Dict[str, Any]
+    qr_rotation_enabled: bool
+    qr_rotation_interval: int
 
 @router.post("", response_model=QueueConfigResponse)
 def create_queue_config(
@@ -33,13 +37,52 @@ def create_queue_config(
     new_queue = QueueConfig(
         tenant_id=tenant_id,
         name=payload.name,
-        form_schema=payload.form_schema
+        form_schema=payload.form_schema,
+        qr_rotation_enabled=payload.qr_rotation_enabled,
+        qr_rotation_interval=payload.qr_rotation_interval
     )
     db.add(new_queue)
     db.commit()
     db.refresh(new_queue)
     
     return new_queue
+
+class QueueConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    form_schema: Optional[Dict[str, Any]] = None
+    qr_rotation_enabled: Optional[bool] = None
+    qr_rotation_interval: Optional[int] = None
+
+@router.put("/{queue_id}", response_model=QueueConfigResponse)
+def update_queue_config(
+    queue_id: str,
+    payload: QueueConfigUpdate,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Updates an existing queue configuration for the calling tenant.
+    """
+    queue_config = db.query(QueueConfig).filter(
+        QueueConfig.id == queue_id,
+        QueueConfig.tenant_id == tenant_id
+    ).first()
+
+    if not queue_config:
+        raise HTTPException(status_code=404, detail="Queue not found")
+
+    if payload.name is not None:
+        queue_config.name = payload.name
+    if payload.form_schema is not None:
+        queue_config.form_schema = payload.form_schema
+    if payload.qr_rotation_enabled is not None:
+        queue_config.qr_rotation_enabled = payload.qr_rotation_enabled
+    if payload.qr_rotation_interval is not None:
+        queue_config.qr_rotation_interval = payload.qr_rotation_interval
+
+    db.commit()
+    db.refresh(queue_config)
+    return queue_config
 
 @router.get("", response_model=List[QueueConfigResponse])
 def list_queues(

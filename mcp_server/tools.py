@@ -5,6 +5,11 @@ import fnmatch
 from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
 from utils import docs_dir, get_safe_path, project_root
+from analyzers.security import register_security_tools
+from analyzers.linters import register_linter_tools
+from analyzers.frontend import register_frontend_tools
+from analyzers.docs import register_docs_tools
+from analyzers.infra import register_infra_tools
 
 max_lines = 300
 max_staleness_days = 90
@@ -170,3 +175,9 @@ def setup_tools(mcp: FastMCP) -> None:
             report_lines.append("no_orphans_detected")
 
         return "\n".join(report_lines)
+
+    register_security_tools(mcp)
+    register_linter_tools(mcp)
+    register_frontend_tools(mcp)
+    register_docs_tools(mcp)
+    register_infra_tools(mcp)

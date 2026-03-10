@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { QRCodeSVG } from 'qrcode.react';
 
 const API_BASE = '/api/v1';
 
@@ -20,7 +21,7 @@ export default function QRDisplay() {
     const queueId = searchParams.get('q');
 
     const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
-    const [qrBlobUrl, setQrBlobUrl] = useState<string | null>(null);
+    const [qrData, setQrData] = useState<{ url: string; expires_in?: number } | null>(null);
     const [queueSize, setQueueSize] = useState<number | null>(null);
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
@@ -34,22 +35,27 @@ export default function QRDisplay() {
             setQueueInfo(infoRes.data);
             setQueueSize(statusRes.data.queue_size);
 
-            // Fetch QR as blob from public endpoint
-            const qrRes = await axios.get(`${API_BASE}/queue/${queueId}/qrcode-public`, {
-                responseType: 'blob'
-            });
-            if (qrBlobUrl) URL.revokeObjectURL(qrBlobUrl);
-            setQrBlobUrl(URL.createObjectURL(qrRes.data));
+            // Fetch dynamic QR logic (code and TTL)
+            const qrRes = await axios.get(`${API_BASE}/queue/${queueId}/current-qr`);
+            const fullUrl = `${window.location.origin}${qrRes.data.url}`;
+            setQrData({ url: fullUrl, expires_in: qrRes.data.expires_in });
+
             setStatus('ready');
+
+            if (qrRes.data.rotation_enabled && qrRes.data.expires_in) {
+                // Buffer to update 1 sec before it expires
+                setTimeout(fetchData, Math.max((qrRes.data.expires_in - 1) * 1000, 1000));
+            }
         } catch {
             setStatus('error');
         }
     }, [queueId]);
 
     useEffect(() => {
-        fetchData();
-        return () => { if (qrBlobUrl) URL.revokeObjectURL(qrBlobUrl); };
-    }, [queueId]);
+        let mounted = true;
+        if (mounted) fetchData();
+        return () => { mounted = false; };
+    }, [queueId, fetchData]);
 
     // WebSocket to update queue size in real time
     useEffect(() => {
@@ -111,17 +117,17 @@ export default function QRDisplay() {
                 </p>
 
                 {/* QR Code */}
-                {qrBlobUrl && (
+                {qrData && (
                     <div style={{
                         display: 'inline-block', padding: 20,
                         background: 'white', borderRadius: 24,
                         boxShadow: '0 0 60px rgba(99,102,241,0.3)',
                         marginBottom: 40
                     }}>
-                        <img
+                        <QRCodeSVG
                             id="qr-display-img"
-                            src={qrBlobUrl}
-                            alt={`QR Code — ${queueInfo?.name}`}
+                            value={qrData.url}
+                            size={320}
                             style={{ display: 'block', width: 'clamp(200px, 30vw, 360px)', height: 'auto' }}
                         />
                     </div>

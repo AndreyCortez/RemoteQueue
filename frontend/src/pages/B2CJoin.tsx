@@ -17,6 +17,7 @@ interface QueueInfo {
 export default function B2CJoin() {
     const [searchParams] = useSearchParams();
     const queueId = searchParams.get('q');
+    const accessCode = searchParams.get('code');
 
     const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
     const [formData, setFormData] = useState<Record<string, string>>({});
@@ -63,10 +64,13 @@ export default function B2CJoin() {
         });
 
         try {
-            const res = await axios.post(`${API_BASE}/queue/join`, {
+            const payload: any = {
                 queue_id: queueId,
                 user_data
-            });
+            };
+            if (accessCode) payload.access_code = accessCode;
+
+            const res = await axios.post(`${API_BASE}/queue/join`, payload);
             setPosition(res.data.position);
             setStatus('queued');
 
@@ -88,7 +92,11 @@ export default function B2CJoin() {
             };
             wsRef.current = ws;
         } catch (err: any) {
-            setErrorMsg(err.response?.data?.detail || 'Failed to join queue. Please try again.');
+            if (err.response?.status === 403 && err.response?.data?.detail?.toLowerCase().includes('code')) {
+                setErrorMsg('QR Code expired or invalid. Please scan the display again.');
+            } else {
+                setErrorMsg(err.response?.data?.detail || 'Failed to join queue. Please try again.');
+            }
         }
     };
 

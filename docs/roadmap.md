@@ -88,7 +88,7 @@ Fase 1 ✅  Fase 2 ✅  |  Fase 3 🔲  Fase 4 🔲  Infra 🔲
 ## 🔲 Débitos Técnicos e Infraestrutura
 
 ### Alta Prioridade
-- [ ] **E2E Docker**: Rodar os suites Playwright contra o Docker Compose completo
+- [x] **E2E Docker**: Rodar os suites Playwright contra o Docker Compose completo
 - [ ] **Rate Limiting WebSockets**: Configurar `limit_conn` no Nginx para conexões por IP
 - [ ] **Alembic Migrations**: Substituir `Base.metadata.create_all` por migrações versionadas
 - [ ] **Logs estruturados**: JSON logging no backend para ingestão por ferramentas de observabilidade
@@ -106,22 +106,4 @@ Fase 1 ✅  Fase 2 ✅  |  Fase 3 🔲  Fase 4 🔲  Infra 🔲
 
 ---
 
-## Guia — Como Rodar os Testes E2E
 
-Os testes E2E requerem o stack completo via Docker:
-
-```bash
-# 1. Build e subir containers
-docker compose up --build -d
-
-# 2. Aguardar healthcheck do backend
-curl http://localhost/api/v1/health
-
-# 3. Rodar E2E
-cd e2e && npx playwright test
-
-# Suites disponíveis:
-#   b2b_flow.spec.ts             → Auth completo + Dashboard
-#   b2b_queue_management.spec.ts → Gestão de fila (call, remove, clear)
-#   display_pages.spec.ts        → QRDisplay + StatusDisplay
-```

@@ -1,5 +1,6 @@
 import time
 import json
+import secrets
 from typing import Dict, Any, Optional, List
 import redis
 
@@ -17,6 +18,24 @@ class QueueManager:
     def get_queue_key(self, tenant_id: str, queue_id: str) -> str:
         """Deterministically bounds queue ops to a specific tenant preventing IDOR."""
         return f"tenant:{tenant_id}:queue:{queue_id}"
+
+    def get_access_code_key(self, queue_id: str) -> str:
+        return f"access_code:{queue_id}"
+
+    def generate_access_code(self, queue_id: str, ttl: int) -> str:
+        code = secrets.token_urlsafe(8)
+        self.redis.setex(self.get_access_code_key(queue_id), ttl, code)
+        return code
+
+    def validate_access_code(self, queue_id: str, code: str) -> bool:
+        stored = self.redis.get(self.get_access_code_key(queue_id))
+        return stored == code
+
+    def get_current_access_code(self, queue_id: str) -> Optional[str]:
+        return self.redis.get(self.get_access_code_key(queue_id))
+
+    def get_access_code_ttl(self, queue_id: str) -> int:
+        return self.redis.ttl(self.get_access_code_key(queue_id))
 
     def join_queue(self, tenant_id: str, queue_id: str, user_data: Dict[str, Any]) -> int:
         """

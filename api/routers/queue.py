@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import qrcode
 import io
 
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/v1/queue", tags=["Queue"])
 class JoinQueueRequest(BaseModel):
     queue_id: str
     user_data: Dict[str, Any]
+    access_code: Optional[str] = None
 
 class CallNextRequest(BaseModel):
     queue_id: str
@@ -73,6 +74,11 @@ def join_queue(
         validate_payload_against_schema(request.user_data, queue_config.form_schema)
 
     manager = QueueManager(client)
+
+    if queue_config.qr_rotation_enabled:
+        if not request.access_code or not manager.validate_access_code(request.queue_id, request.access_code):
+            raise HTTPException(status_code=403, detail="Invalid or expired QR access code")
+
     position = manager.join_queue(tenant_id, request.queue_id, request.user_data)
     return {"status": "success", "position": position, "queue_id": request.queue_id}
 
@@ -132,3 +138,35 @@ def get_qrcode_public(queue_id: str, db: Session = Depends(get_db)):
     qr.save(buf, format="PNG")
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
+
+@router.get("/{queue_id}/current-qr")
+def get_current_qr_code(
+    queue_id: str,
+    db: Session = Depends(get_db),
+    client=Depends(get_redis_client)
+):
+    """Public endpoint for displays to get the current QR logic data (code and TTL)."""
+    queue_config = db.query(QueueConfig).filter(QueueConfig.id == queue_id).first()
+    if not queue_config:
+        raise HTTPException(status_code=404, detail="Queue not found")
+
+    if not queue_config.qr_rotation_enabled:
+        return {
+            "rotation_enabled": False,
+            "url": f"/join?q={queue_id}"
+        }
+
+    manager = QueueManager(client)
+    code = manager.get_current_access_code(queue_id)
+    ttl = manager.get_access_code_ttl(queue_id)
+
+    if not code or ttl <= 0:
+        ttl = queue_config.qr_rotation_interval
+        code = manager.generate_access_code(queue_id, ttl)
+
+    return {
+        "rotation_enabled": True,
+        "access_code": code,
+        "expires_in": ttl,
+        "url": f"/join?q={queue_id}&code={code}"
+    }

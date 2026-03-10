@@ -15,6 +15,8 @@ interface QueueInfo {
     id: string;
     name: string;
     form_schema: Record<string, string>;
+    qr_rotation_enabled: boolean;
+    qr_rotation_interval: number;
 }
 
 export default function QueueManagement() {
@@ -27,6 +29,11 @@ export default function QueueManagement() {
     const [loading, setLoading] = useState(true);
     const [calledUser, setCalledUser] = useState<Record<string, unknown> | null>(null);
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+    // Settings Modal
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [editQrEnabled, setEditQrEnabled] = useState(false);
+    const [editQrInterval, setEditQrInterval] = useState(300);
 
     const headers = getAuthHeaders();
 
@@ -136,6 +143,27 @@ export default function QueueManagement() {
         }
     };
 
+    const openSettings = () => {
+        if (!queue) return;
+        setEditQrEnabled(queue.qr_rotation_enabled || false);
+        setEditQrInterval(queue.qr_rotation_interval || 300);
+        setIsSettingsOpen(true);
+    };
+
+    const saveSettings = async () => {
+        try {
+            await axios.put(`${API_BASE}/b2b/queues/${queueId}`, {
+                qr_rotation_enabled: editQrEnabled,
+                qr_rotation_interval: editQrInterval
+            }, { headers });
+            showToast('Settings updated successfully');
+            fetchQueue();
+            setIsSettingsOpen(false);
+        } catch (err) {
+            showToast('Failed to update settings', 'error');
+        }
+    };
+
     const formatTime = (score: number) => {
         return new Date(score * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     };
@@ -158,12 +186,26 @@ export default function QueueManagement() {
                 <div>
                     <button className="btn btn-secondary btn-sm" onClick={() => navigate('/dashboard')}
                         style={{ marginBottom: 8 }}>← Back to Dashboard</button>
-                    <h1 className="heading-lg" style={{ marginBottom: 0 }}>{queue?.name || '...'}</h1>
+                    <h1 className="heading-lg" style={{ marginBottom: 0 }}>
+                        {queue?.name || '...'}
+                        {queue?.qr_rotation_enabled && (
+                            <span style={{ marginLeft: 12, fontSize: '0.9rem', color: 'var(--accent-primary)', padding: '2px 8px', background: 'rgba(99,102,241,0.1)', borderRadius: 12 }}>
+                                🔄 Anti-Fraude Ativo
+                            </span>
+                        )}
+                    </h1>
                     <p className="subtitle" style={{ marginBottom: 0 }}>
                         {members.length} {members.length === 1 ? 'person' : 'people'} in queue
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={openSettings}
+                        title="Queue Settings"
+                    >
+                        ⚙️ Settings
+                    </button>
                     <button
                         id="call-next-btn"
                         className="btn btn-primary"
@@ -300,6 +342,49 @@ export default function QueueManagement() {
                     </table>
                 )}
             </div>
+
+            {/* SETTINGS MODAL */}
+            {isSettingsOpen && (
+                <div className="qr-overlay" onClick={() => setIsSettingsOpen(false)}>
+                    <div className="qr-modal" onClick={e => e.stopPropagation()} style={{ minWidth: '400px' }}>
+                        <h2 className="heading-md">Queue Settings</h2>
+                        <div className="form-group" style={{ marginTop: '20px', textAlign: 'left' }}>
+                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={editQrEnabled} 
+                                    onChange={e => setEditQrEnabled(e.target.checked)} 
+                                />
+                                Habilitar QR Code Rotativo (Anti-Fraude)
+                            </label>
+                            {editQrEnabled && (
+                                <div style={{ marginTop: '14px' }}>
+                                    <label className="form-label" htmlFor="edit-qr-interval">Intervalo de Rotação (segundos)</label>
+                                    <select 
+                                        id="edit-qr-interval"
+                                        className="form-select" 
+                                        value={editQrInterval} 
+                                        onChange={e => setEditQrInterval(Number(e.target.value))}
+                                    >
+                                        <option value={30}>30 Segundos</option>
+                                        <option value={60}>1 Minuto</option>
+                                        <option value={300}>5 Minutos</option>
+                                        <option value={900}>15 Minutos</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                            <button className="btn btn-secondary" onClick={() => setIsSettingsOpen(false)}>
+                                Cancel
+                            </button>
+                            <button className="btn btn-primary" onClick={saveSettings}>
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

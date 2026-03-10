@@ -93,3 +93,56 @@ def test_get_queue_status_public(test_queue_config):
     data = response.json()
     assert data["name"] == "Test Public Queue"
     assert data["queue_size"] == 1  # Based on router implementation returning queue_size
+
+def test_get_current_qr_rotation_disabled(test_queue_config):
+    response = client.get(f"/api/v1/queue/{test_queue_config.id}/current-qr")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rotation_enabled"] is False
+    assert f"/join?q={test_queue_config.id}" in data["url"]
+
+def test_current_qr_and_join_with_rotation(db_session, test_queue_config):
+    # Enable rotation
+    test_queue_config.qr_rotation_enabled = True
+    test_queue_config.qr_rotation_interval = 60
+    db_session.commit()
+
+    # 1. Ask for current QR
+    response = client.get(f"/api/v1/queue/{test_queue_config.id}/current-qr")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rotation_enabled"] is True
+    assert "expires_in" in data
+    assert "&code=" in data["url"]
+    
+    # Extract code from URL
+    url_code = data["url"].split("&code=")[-1]
+    
+    # 2. Try to join WITHOUT code -> 403
+    payload_no_code = {
+        "queue_id": str(test_queue_config.id),
+        "user_data": {"name": "Hacker", "age": 25}
+    }
+    r_no_code = client.post("/api/v1/queue/join", json=payload_no_code)
+    assert r_no_code.status_code == 403
+    assert "invalid or expired" in r_no_code.json()["detail"].lower()
+
+    # 3. Try to join with WRONG code -> 403
+    payload_wrong_code = {
+        "queue_id": str(test_queue_config.id),
+        "user_data": {"name": "Hacker", "age": 25},
+        "access_code": "fake_code_123"
+    }
+    r_wrong = client.post("/api/v1/queue/join", json=payload_wrong_code)
+    assert r_wrong.status_code == 403
+    assert "invalid or expired" in r_wrong.json()["detail"].lower()
+
+    # 4. Try to join with CORRECT code -> 200
+    payload_correct = {
+        "queue_id": str(test_queue_config.id),
+        "user_data": {"name": "Andrey", "age": 30},
+        "access_code": url_code
+    }
+    r_correct = client.post("/api/v1/queue/join", json=payload_correct)
+    assert r_correct.status_code == 200
+    assert r_correct.json()["status"] == "success"
