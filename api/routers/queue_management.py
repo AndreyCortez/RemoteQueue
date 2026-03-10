@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 from api.dependencies.security import get_current_tenant_id
 from api.dependencies.websockets import manager as websocket_manager

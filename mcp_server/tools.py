@@ -27,7 +27,7 @@ def count_lines(file_path: str) -> int:
 
 def get_staleness_days(file_path: str) -> int:
     git_command = ["git", "log", "-1", "--format=%ct", "--", file_path]
-    process_result = subprocess.run(git_command, capture_output=True, text=True, check=False)
+    process_result = subprocess.run(git_command, capture_output=True, text=True, check=False) # nosec B603
     output = process_result.stdout.strip()
     if not output:
         return 0
@@ -49,7 +49,7 @@ def setup_tools(mcp: FastMCP) -> None:
                             for index, line in enumerate(doc.readlines()):
                                 if query.lower() in line.lower():
                                     search_results.append(f"[{relative_path}:{index + 1}] {line.strip()}")
-                    except Exception:
+                    except (OSError, UnicodeDecodeError):
                         continue
         return "\n".join(search_results) if search_results else "no_results"
 
@@ -99,7 +99,7 @@ def setup_tools(mcp: FastMCP) -> None:
                     file_path = os.path.join(root, file)
                     try:
                         safe_path = get_safe_path(os.path.relpath(file_path, docs_dir))
-                    except Exception:
+                    except (OSError, ValueError):
                         continue
                         
                     lines = count_lines(safe_path)

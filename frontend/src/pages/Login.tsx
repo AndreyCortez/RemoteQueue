@@ -17,8 +17,12 @@ export default function Login() {
         try {
             await login(email, password);
             navigate('/dashboard');
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Login failed. Check your credentials.');
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err)) {
+                setError(err.response?.data?.detail || 'Login failed. Check your credentials.');
+            } else {
+                setError('An unexpected error occurred.');
+            }
         } finally {
             setLoading(false);
         }

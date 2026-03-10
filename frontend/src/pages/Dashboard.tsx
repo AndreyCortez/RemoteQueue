@@ -41,8 +41,8 @@ export default function Dashboard() {
         try {
             const res = await axios.get(`${API_BASE}/b2b/queues`, { headers });
             setQueues(res.data);
-        } catch (err: any) {
-            if (err.response?.status === 401) { logout(); navigate('/login'); }
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err) && err.response?.status === 401) { logout(); navigate('/login'); }
         } finally {
             setLoadingQueues(false);
         }
@@ -77,8 +77,12 @@ export default function Dashboard() {
             setQrRotationEnabled(false);
             setQrRotationInterval(300);
             fetchQueues();
-        } catch (err: any) {
-            setCreateError(err.response?.data?.detail || 'Failed to create queue.');
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err)) {
+                setCreateError(err.response?.data?.detail || 'Failed to create queue.');
+            } else {
+                setCreateError('An unexpected error occurred.');
+            }
         }
     };
 

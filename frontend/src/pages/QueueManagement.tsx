@@ -44,12 +44,12 @@ export default function QueueManagement() {
 
     const fetchQueue = useCallback(async () => {
         try {
-            const res = await axios.get(`${API_BASE}/b2b/queues`, { headers });
-            const q = res.data.find((q: QueueInfo) => q.id === queueId);
+            const res = await axios.get<QueueInfo[]>(`${API_BASE}/b2b/queues`, { headers });
+            const q = res.data.find((item) => item.id === queueId);
             if (!q) { navigate('/dashboard'); return; }
             setQueue(q);
-        } catch (err: any) {
-            if (err.response?.status === 401) { logout(); navigate('/login'); }
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err) && err.response?.status === 401) { logout(); navigate('/login'); }
         }
     }, [queueId]);
 
@@ -86,10 +86,14 @@ export default function QueueManagement() {
             setCalledUser(res.data.user_data);
             showToast('Next person called! ✓');
             fetchMembers();
-        } catch (err: any) {
-            const detail = err.response?.data?.detail;
-            if (detail === 'queue_is_empty') showToast('Queue is empty!', 'error');
-            else showToast('Error calling next', 'error');
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err)) {
+                const detail = err.response?.data?.detail;
+                if (detail === 'queue_is_empty') showToast('Queue is empty!', 'error');
+                else showToast('Error calling next', 'error');
+            } else {
+                showToast('An unexpected error occurred', 'error');
+            }
         }
     };
 
@@ -159,7 +163,7 @@ export default function QueueManagement() {
             showToast('Settings updated successfully');
             fetchQueue();
             setIsSettingsOpen(false);
-        } catch (err) {
+        } catch {
             showToast('Failed to update settings', 'error');
         }
     };

@@ -64,13 +64,13 @@ export default function B2CJoin() {
         });
 
         try {
-            const payload: any = {
+            const payload: Record<string, unknown> = {
                 queue_id: queueId,
                 user_data
             };
             if (accessCode) payload.access_code = accessCode;
 
-            const res = await axios.post(`${API_BASE}/queue/join`, payload);
+            const res = await axios.post<{position: number}>(`${API_BASE}/queue/join`, payload);
             setPosition(res.data.position);
             setStatus('queued');
 
@@ -91,11 +91,16 @@ export default function B2CJoin() {
                 }
             };
             wsRef.current = ws;
-        } catch (err: any) {
-            if (err.response?.status === 403 && err.response?.data?.detail?.toLowerCase().includes('code')) {
-                setErrorMsg('QR Code expired or invalid. Please scan the display again.');
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err)) {
+                const errorData = err.response?.data as { detail?: string } | undefined;
+                if (err.response?.status === 403 && errorData?.detail?.toLowerCase().includes('code')) {
+                    setErrorMsg('QR Code expired or invalid. Please scan the display again.');
+                } else {
+                    setErrorMsg(errorData?.detail || 'Failed to join queue. Please try again.');
+                }
             } else {
-                setErrorMsg(err.response?.data?.detail || 'Failed to join queue. Please try again.');
+                setErrorMsg('An unexpected error occurred.');
             }
         }
     };

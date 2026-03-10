@@ -1,4 +1,4 @@
-from fastapi import HTTPException, Header, Depends
+from fastapi import HTTPException, Header
 import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional

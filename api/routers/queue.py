@@ -43,7 +43,7 @@ async def websocket_queue_endpoint(websocket: WebSocket, queue_id: str):
     await websocket_manager.connect(websocket, queue_id)
     try:
         while True:
-            data = await websocket.receive_text()
+            await websocket.receive_text()
     except WebSocketDisconnect:
         websocket_manager.disconnect(websocket, queue_id)
 
