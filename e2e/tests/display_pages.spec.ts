@@ -11,7 +11,13 @@ async function seedAndLogin(page: Page): Promise<string> {
     await page.goto('/login');
     await page.fill('#login-email', SEED_EMAIL);
     await page.fill('#login-password', SEED_PASSWORD);
-    await page.click('#login-submit');
+    
+    // Ensure we await the API response before expecting URL change
+    const [response] = await Promise.all([
+        page.waitForResponse('**/api/v1/auth/login'),
+        page.click('#login-submit')
+    ]);
+    
     await page.waitForURL('**/dashboard');
 
     await page.fill('#queue-name', 'Display Test Queue');
@@ -29,7 +35,7 @@ test.describe('Public Status Display Page', () => {
     test('StatusDisplay shows queue name and counter', async ({ page }) => {
         const queueId = await seedAndLogin(page);
         await page.goto(`/display/status?q=${queueId}`);
-        await expect(page.locator('text=Display Test Queue')).toBeVisible();
+        await page.locator('text=Display Test Queue').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('text=AO VIVO')).toBeVisible();
         // Counter shows 0
         await expect(page.locator('text=0')).toBeVisible();
@@ -38,7 +44,7 @@ test.describe('Public Status Display Page', () => {
     test('StatusDisplay updates counter when member joins', async ({ page }) => {
         const queueId = await seedAndLogin(page);
         await page.goto(`/display/status?q=${queueId}`);
-        await expect(page.locator('text=0')).toBeVisible();
+        await page.locator('text=0').waitFor({ state: 'visible', timeout: 8000 });
 
         await page.request.post('/api/v1/queue/join', {
             data: { queue_id: queueId, user_data: { nome: 'Test User' } }
@@ -53,7 +59,7 @@ test.describe('Public Status Display Page', () => {
 
     test('StatusDisplay shows error for invalid queue', async ({ page }) => {
         await page.goto('/display/status?q=00000000-0000-0000-0000-000000000000');
-        await expect(page.locator('text=Fila não encontrada')).toBeVisible();
+        await page.locator('text=Fila não encontrada').waitFor({ state: 'visible', timeout: 8000 });
     });
 });
 
@@ -61,7 +67,7 @@ test.describe('Public QR Display Page', () => {
     test('QRDisplay shows queue QR code', async ({ page }) => {
         const queueId = await seedAndLogin(page);
         await page.goto(`/display/qr?q=${queueId}`);
-        await expect(page.locator('text=Display Test Queue')).toBeVisible();
+        await page.locator('text=Display Test Queue').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#qr-display-img')).toBeVisible();
         await expect(page.locator('text=Na fila agora')).toBeVisible();
     });

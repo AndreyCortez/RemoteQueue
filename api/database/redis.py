@@ -3,10 +3,12 @@ import json
 from typing import Dict, Any, Optional, List
 import redis
 
+from api.config import settings
+
 # Redis connection stub (in prod this should use settings.redis_url and connection pooling)
 def get_redis_client():
     """Stub connection, easily patchable by tests."""
-    return redis.Redis(host='localhost', port=6379, db=1, decode_responses=True)
+    return redis.from_url(settings.redis_url, decode_responses=True)
 
 class QueueManager:
     def __init__(self, client: redis.Redis):

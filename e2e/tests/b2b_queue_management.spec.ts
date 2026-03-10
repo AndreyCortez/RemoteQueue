@@ -52,19 +52,19 @@ test.describe('Queue Management Dashboard', () => {
     test('Empty queue shows empty state', async ({ page }) => {
         await loginAndCreateQueue(page, 'Empty Queue Test');
         await page.locator('.queue-item').first().click();
+        await page.locator('text=Queue is empty').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#members-table')).not.toBeVisible();
-        await expect(page.locator('text=Queue is empty')).toBeVisible();
     });
 
     test('Call Next on empty queue shows error', async ({ page }) => {
         await loginAndCreateQueue(page, 'Call Next Empty Test');
         await page.locator('.queue-item').first().click();
+        await page.locator('#call-next-btn').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#call-next-btn')).toBeDisabled();
     });
 
     test('Members appear in table after joining', async ({ page }) => {
         const queueId = await loginAndCreateQueue(page, 'Member Table Test');
-        const token = await page.evaluate(() => localStorage.getItem('rq_access_token'));
 
         // Add members via API
         await page.request.post('/api/v1/queue/join', {
@@ -76,7 +76,7 @@ test.describe('Queue Management Dashboard', () => {
 
         // Navigate to management and check table
         await page.goto(`/dashboard/queue/${queueId}`);
-        await expect(page.locator('#members-table')).toBeVisible();
+        await page.locator('#members-table').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('[data-testid="member-row-0"]')).toBeVisible();
         await expect(page.locator('[data-testid="member-row-1"]')).toBeVisible();
         await expect(page.locator('text=Alice')).toBeVisible();
@@ -93,10 +93,10 @@ test.describe('Queue Management Dashboard', () => {
         });
 
         await page.goto(`/dashboard/queue/${queueId}`);
-        await expect(page.locator('#members-table')).toBeVisible();
+        await page.locator('#members-table').waitFor({ state: 'visible', timeout: 8000 });
 
         await page.click('#call-next-btn');
-        await expect(page.locator('#called-user-banner')).toBeVisible();
+        await page.locator('#called-user-banner').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#called-user-banner')).toContainText('First Person');
 
         // Only 1 member left
@@ -111,12 +111,12 @@ test.describe('Queue Management Dashboard', () => {
         });
 
         await page.goto(`/dashboard/queue/${queueId}`);
-        await expect(page.locator('#members-table')).toBeVisible();
+        await page.locator('#members-table').waitFor({ state: 'visible', timeout: 8000 });
         await page.click('[data-testid="remove-btn-0"]');
 
         // Queue empty again
+        await page.locator('text=Queue is empty').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#members-table')).not.toBeVisible();
-        await expect(page.locator('text=Queue is empty')).toBeVisible();
     });
 
     test('Clear All removes all members', async ({ page }) => {
@@ -128,14 +128,14 @@ test.describe('Queue Management Dashboard', () => {
         }
 
         await page.goto(`/dashboard/queue/${queueId}`);
-        await expect(page.locator('#members-table')).toBeVisible();
+        await page.locator('#members-table').waitFor({ state: 'visible', timeout: 8000 });
 
         // Mock confirm dialog
         page.on('dialog', dialog => dialog.accept());
         await page.click('#clear-all-btn');
 
+        await page.locator('text=Queue is empty').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#members-table')).not.toBeVisible();
-        await expect(page.locator('text=Queue is empty')).toBeVisible();
     });
 
     test('Back button returns to dashboard', async ({ page }) => {

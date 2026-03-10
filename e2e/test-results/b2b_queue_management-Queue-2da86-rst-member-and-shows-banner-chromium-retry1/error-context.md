@@ -1,0 +1,56 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - button "← Back to Dashboard" [ref=e6] [cursor=pointer]
+      - heading "Manage Test Queue" [level=1] [ref=e7]
+      - paragraph [ref=e8]: 2 people in queue
+    - generic [ref=e9]:
+      - button "Call Next ▶" [active] [ref=e10] [cursor=pointer]
+      - button "Clear All ✕" [ref=e11] [cursor=pointer]
+  - generic [ref=e12]:
+    - paragraph [ref=e13]: "✓ Now calling:"
+    - generic [ref=e15]:
+      - generic [ref=e16]: "nome:"
+      - text: Bob
+    - button "dismiss" [ref=e17] [cursor=pointer]
+  - table [ref=e19]:
+    - rowgroup [ref=e20]:
+      - row "# Data Joined Order Remove" [ref=e21]:
+        - columnheader "#" [ref=e22]
+        - columnheader "Data" [ref=e23]
+        - columnheader "Joined" [ref=e24]
+        - columnheader "Order" [ref=e25]
+        - columnheader "Remove" [ref=e26]
+    - rowgroup [ref=e27]:
+      - 'row "1 nome: First Person 00:27 ▲ ▼ ✕" [ref=e28]':
+        - cell "1" [ref=e29]:
+          - generic [ref=e30]: "1"
+        - 'cell "nome: First Person" [ref=e31]':
+          - generic [ref=e33]:
+            - generic [ref=e34]: "nome:"
+            - text: First Person
+        - cell "00:27" [ref=e35]
+        - cell "▲ ▼" [ref=e36]:
+          - generic [ref=e37]:
+            - button "▲" [disabled] [ref=e38] [cursor=pointer]
+            - button "▼" [ref=e39] [cursor=pointer]
+        - cell "✕" [ref=e40]:
+          - button "✕" [ref=e41] [cursor=pointer]
+      - 'row "2 nome: Second Person 00:27 ▲ ▼ ✕" [ref=e42]':
+        - cell "2" [ref=e43]:
+          - generic [ref=e44]: "2"
+        - 'cell "nome: Second Person" [ref=e45]':
+          - generic [ref=e47]:
+            - generic [ref=e48]: "nome:"
+            - text: Second Person
+        - cell "00:27" [ref=e49]
+        - cell "▲ ▼" [ref=e50]:
+          - generic [ref=e51]:
+            - button "▲" [ref=e52] [cursor=pointer]
+            - button "▼" [disabled] [ref=e53] [cursor=pointer]
+        - cell "✕" [ref=e54]:
+          - button "✕" [ref=e55] [cursor=pointer]
+```

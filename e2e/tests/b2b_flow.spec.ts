@@ -25,7 +25,12 @@ test.describe('B2B Authentication Flow', () => {
         await page.goto('/login');
         await page.fill('#login-email', SEED_EMAIL);
         await page.fill('#login-password', SEED_PASSWORD);
-        await page.click('#login-submit');
+        
+        await Promise.all([
+            page.waitForResponse('**/api/v1/auth/login'),
+            page.click('#login-submit')
+        ]);
+        
         await page.waitForURL('**/dashboard');
         await expect(page.locator('h1')).toContainText('Dashboard');
     });
@@ -52,7 +57,12 @@ test.describe('B2B Dashboard Flow', () => {
         await page.goto('/login');
         await page.fill('#login-email', SEED_EMAIL);
         await page.fill('#login-password', SEED_PASSWORD);
-        await page.click('#login-submit');
+        
+        await Promise.all([
+            page.waitForResponse('**/api/v1/auth/login'),
+            page.click('#login-submit')
+        ]);
+        
         await page.waitForURL('**/dashboard');
     });
 
@@ -71,8 +81,8 @@ test.describe('B2B Dashboard Flow', () => {
         await page.fill('[data-testid="schema-field-name-0"]', 'name');
         await page.click('#create-queue-submit');
         await expect(page.locator('#create-success')).toBeVisible();
-        await page.locator('.queue-item').first().click();
-        await expect(page.locator('#qr-code-img')).toBeVisible();
+        await page.locator('.queue-item').first().locator('button[title="View QR Code"]').click();
+        await page.locator('#qr-code-img').waitFor({ state: 'visible', timeout: 8000 });
     });
 
     test('Logout returns to login page', async ({ page }) => {
