@@ -1,6 +1,7 @@
+import os
 import subprocess
 from mcp.server.fastmcp import FastMCP
-from utils import get_safe_project_path
+from utils import get_safe_project_path, project_root
 
 def register_linter_tools(mcp: FastMCP) -> None:
     @mcp.tool()
@@ -38,7 +39,9 @@ def register_linter_tools(mcp: FastMCP) -> None:
         try:
             safe_path = get_safe_project_path(target_path)
             command = ["pytest", "--cov", safe_path]
-            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            env = os.environ.copy()
+            env["PYTHONPATH"] = project_root
+            result = subprocess.run(command, capture_output=True, text=True, check=False, env=env)
             return result.stdout if result.stdout else result.stderr
         except Exception as error:
             return str(error)
