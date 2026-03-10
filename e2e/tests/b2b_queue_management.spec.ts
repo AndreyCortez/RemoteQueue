@@ -11,7 +11,8 @@ async function seedB2BUser(page: Page) {
     expect(response.ok()).toBeTruthy();
 }
 
-async function loginAndCreateQueue(page: Page, queueName: string): Promise<string> {
+async function loginAndCreateQueue(page: Page, queueNamePrefix: string): Promise<string> {
+    const queueName = `${queueNamePrefix} ${Date.now()}`;
     await page.goto('/login');
     await page.fill('#login-email', SEED_EMAIL);
     await page.fill('#login-password', SEED_PASSWORD);
@@ -22,11 +23,11 @@ async function loginAndCreateQueue(page: Page, queueName: string): Promise<strin
     await page.fill('#queue-name', queueName);
     await page.fill('[data-testid="schema-field-name-0"]', 'nome');
     await page.click('#create-queue-submit');
-    await expect(page.locator('#create-success')).toBeVisible();
+    await page.locator('#create-success').waitFor({ state: 'visible', timeout: 8000 });
 
-    // Get queue ID from list item
-    const queueItem = page.locator('.queue-item').first();
-    await expect(queueItem).toBeVisible();
+    // Get queue ID from the uniquely named list item
+    const queueItem = page.locator('.queue-item', { hasText: queueName }).first();
+    await queueItem.waitFor({ state: 'visible', timeout: 8000 });
     const testId = await queueItem.getAttribute('data-testid') ?? '';
     return testId.replace('queue-item-', '');
 }
@@ -44,7 +45,7 @@ test.describe('Queue Management Dashboard', () => {
 
     test('Clicking queue navigates to management page', async ({ page }) => {
         const queueId = await loginAndCreateQueue(page, 'Manage Test Queue');
-        await page.locator('.queue-item').first().click();
+        await page.locator(`[data-testid="queue-item-${queueId}"]`).click();
         await page.waitForURL(`**/dashboard/queue/${queueId}`);
         await expect(page.locator('h1')).toContainText('Manage Test Queue');
     });

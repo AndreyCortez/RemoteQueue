@@ -163,7 +163,7 @@ export default function StatusDisplay() {
                             <p style={{ color: '#94a3b8', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
                                 Na fila
                             </p>
-                            <p style={{
+                            <p data-testid="live-queue-size" style={{
                                 fontSize: 'clamp(4rem, 10vw, 9rem)', fontWeight: 900, lineHeight: 1,
                                 color: status.queue_size === 0 ? '#10b981' : '#f1f5f9'
                             }}>

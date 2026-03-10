@@ -20,15 +20,23 @@ async function seedAndLogin(page: Page): Promise<string> {
     
     await page.waitForURL('**/dashboard');
 
-    await page.fill('#queue-name', 'Display Test Queue');
+    const uniqueQueueName = 'Display Test Queue ' + Date.now();
+    await page.fill('#queue-name', uniqueQueueName);
     await page.fill('[data-testid="schema-field-name-0"]', 'nome');
     await page.click('#create-queue-submit');
     await expect(page.locator('#create-success')).toBeVisible();
 
-    const items = page.locator('.queue-item');
-    await expect(items.first()).toBeVisible();
-    const testId = await items.first().getAttribute('data-testid') ?? '';
-    return testId.replace('queue-item-', '');
+    const queueItem = page.locator('.queue-item', { hasText: uniqueQueueName }).first();
+    await expect(queueItem).toBeVisible();
+    const testId = await queueItem.getAttribute('data-testid') ?? '';
+    const qid = testId.replace('queue-item-', '');
+    
+    // DEBUG: print status IMMEDIATELY after creation
+    const statusResp = await page.request.get(`/api/v1/queue/${qid}/status`);
+    const statusJson = await statusResp.json();
+    console.log(`NEW QUEUE SIZE IN DB: ${statusJson.queue_size}`);
+
+    return qid;
 }
 
 test.describe('Public Status Display Page', () => {
@@ -38,13 +46,13 @@ test.describe('Public Status Display Page', () => {
         await page.locator('text=Display Test Queue').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('text=AO VIVO')).toBeVisible();
         // Counter shows 0
-        await expect(page.locator('text=0')).toBeVisible();
+        await expect(page.locator('[data-testid="live-queue-size"]')).toHaveText('0', { timeout: 8000 });
     });
 
     test('StatusDisplay updates counter when member joins', async ({ page }) => {
         const queueId = await seedAndLogin(page);
         await page.goto(`/display/status?q=${queueId}`);
-        await page.locator('text=0').waitFor({ state: 'visible', timeout: 8000 });
+        await page.locator('[data-testid="live-queue-size"]').waitFor({ state: 'visible', timeout: 8000 });
 
         await page.request.post('/api/v1/queue/join', {
             data: { queue_id: queueId, user_data: { nome: 'Test User' } }
@@ -89,7 +97,7 @@ test.describe('Public QR Display Page', () => {
         const resp = await page.request.get(`/api/v1/queue/${queueId}/status`);
         expect(resp.ok()).toBeTruthy();
         const data = await resp.json();
-        expect(data.name).toBe('Display Test Queue');
+        expect(data.name).toContain('Display Test Queue');
         expect(typeof data.queue_size).toBe('number');
     });
 });

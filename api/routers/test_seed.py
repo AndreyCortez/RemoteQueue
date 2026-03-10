@@ -10,7 +10,8 @@ from passlib.context import CryptContext
 import os
 
 from api.database.postgres import get_db
-from api.database.models import Tenant, B2BUser
+from api.database.models import Tenant, B2BUser, QueueConfig
+from api.database.redis import get_redis_client
 
 router = APIRouter(prefix="/api/v1/test", tags=["Test Seed"])
 
@@ -29,11 +30,22 @@ def seed_b2b_user(payload: SeedRequest, db: Session = Depends(get_db)):
     if os.environ.get("ENVIRONMENT") == "production":
         raise HTTPException(status_code=403, detail="Forbidden in production")
 
+    client = get_redis_client()
     existing = db.query(B2BUser).filter(B2BUser.email == payload.email).first()
     if existing:
+        # Wipe old state so each test run starts fresh
+        tenant_id = existing.tenant_id
+        db.query(QueueConfig).filter(QueueConfig.tenant_id == tenant_id).delete()
+        db.commit()
+
+        # Wipe redis keys for this tenant
+        keys = client.keys(f"tenant:{tenant_id}:*")
+        if keys:
+            client.delete(*keys)
+
         return {
             "status": "already_exists",
-            "tenant_id": existing.tenant_id,
+            "tenant_id": tenant_id,
             "user_id": existing.id,
             "email": existing.email
         }
