@@ -14,8 +14,9 @@ Sistema de fila remota **multi-tenant** baseado em QR Code. Estabelecimentos B2B
 |---|---|---|
 | **Fase 1** | Backend de gestão + Frontend B2B + Testes unitários | ✅ Completo |
 | **Fase 2** | Páginas públicas de exibição (QR Display, Status Display) | ✅ Completo |
-| **Fase 3** | QR Code Rotativo com TTL (anti-fraude) | 🔲 Pendente |
-| **Fase 4** | Configurações avançadas + Form Builder | 🔲 Pendente |
+| **Fase 3** | QR Code Rotativo com TTL (anti-fraude) | ✅ Completo |
+| **Fase 4** | Form Schema Rico (labels, obrigatório/opcional, regex) | ✅ Completo |
+| **Infra** | Alembic migrations, JSON logging, cobertura ≥91% | ✅ Completo |
 
 ## Documentação por Módulo
 
@@ -50,7 +51,8 @@ Sistema de fila remota **multi-tenant** baseado em QR Code. Estabelecimentos B2B
    - Isolamento de estado, UUIDs e wipe do Redis
 
 7. **[Roadmap — Próximos Passos](roadmap.md)**
-   - Fases 3 e 4 detalhadas
-   - Débitos técnicos e melhorias de infraestrutura
+   - Fases 3 e 4 concluídas (QR Rotativo, Form Schema Rico)
+   - Débitos técnicos críticos concluídos (Alembic, JSON logging, cobertura)
+   - Backlog: analytics, notificações push, multi-fila por tablet
 
 > **Regra de Engenharia:** Arquivos de documentação longos corrompem o contexto. Sempre que um tópico ramificar de forma complexa, um novo arquivo Markdown específico deve ser criado e referenciado aqui.

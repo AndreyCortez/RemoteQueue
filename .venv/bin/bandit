@@ -1,4 +1,4 @@
-#!/home/andrey/development/RemoteQueue/.venv/bin/python3
+#!/home/wsl/RemoteQueue/.venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

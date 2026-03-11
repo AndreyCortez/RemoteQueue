@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+import re
 import qrcode
 import io
 
@@ -22,21 +23,46 @@ class JoinQueueRequest(BaseModel):
 class CallNextRequest(BaseModel):
     queue_id: str
 
+_TYPE_CHECKERS = {
+    "string": lambda v: isinstance(v, str),
+    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "boolean": lambda v: isinstance(v, bool),
+}
+
 def validate_payload_against_schema(payload: dict, schema: dict):
     """
-    Validates a simple B2C payload dictionary against a specified JSON Schema.
-    Type checker for 'string', 'integer', 'boolean' requirements.
+    Validates a B2C payload against form_schema.
+
+    Supports two formats (backwards-compatible):
+      - Simple:  {"campo": "string"}
+      - Rich:    {"campo": {"type": "string", "label": "...", "required": true, "pattern": "..."}}
+
+    Simple format is treated as required=True with no pattern.
     """
-    for field, required_type in schema.items():
-        if field not in payload:
-            raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
-        value = payload[field]
-        if required_type == "string" and not isinstance(value, str):
-            raise HTTPException(status_code=422, detail=f"Field {field} must be a string")
-        elif required_type == "integer" and not isinstance(value, int):
-            raise HTTPException(status_code=422, detail=f"Field {field} must be an integer")
-        elif required_type == "boolean" and not isinstance(value, bool):
-            raise HTTPException(status_code=422, detail=f"Field {field} must be a boolean")
+    for field, definition in schema.items():
+        # Normalise to rich format
+        if isinstance(definition, str):
+            field_type: str = definition
+            required: bool = True
+            pattern: Optional[str] = None
+        else:
+            field_type = definition.get("type", "string")
+            required = definition.get("required", True)
+            pattern = definition.get("pattern")
+
+        value = payload.get(field)
+
+        if value is None:
+            if required:
+                raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+            continue
+
+        checker = _TYPE_CHECKERS.get(field_type)
+        if checker and not checker(value):
+            raise HTTPException(status_code=422, detail=f"Field {field} must be a {field_type}")
+
+        if pattern and isinstance(value, str) and not re.fullmatch(pattern, value):
+            raise HTTPException(status_code=422, detail=f"Field {field} does not match required pattern")
 
 @router.websocket("/{queue_id}/ws")
 async def websocket_queue_endpoint(websocket: WebSocket, queue_id: str):

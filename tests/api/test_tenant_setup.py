@@ -97,7 +97,7 @@ def test_qrcode_idor_protection(client: TestClient, db_session: Session):
     t_b = Tenant(name="Tenant B")
     db_session.add_all([t_a, t_b])
     db_session.commit()
-    
+
     token_a = create_mock_token(t_a.id)
     token_b = create_mock_token(t_b.id)
 
@@ -111,6 +111,77 @@ def test_qrcode_idor_protection(client: TestClient, db_session: Session):
 
     # Tenant B maliciously tries to generate a QR code for Tenant A's queue
     qr_resp_b = client.get(f"/api/v1/b2b/queues/{queue_id_a}/qrcode", headers={"x-tenant-token": token_b})
-    
+
     # Should block at 404 (Not Found in Tenant B's context) to hide enumeration
     assert qr_resp_b.status_code == 404
+
+
+def test_update_queue_config(client: TestClient, db_session: Session):
+    """Verifica que PUT /queues/{id} atualiza campos corretamente."""
+    tenant = Tenant(name="Update Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+    headers = {"x-tenant-token": token}
+
+    create_resp = client.post(
+        "/api/v1/b2b/queues",
+        headers=headers,
+        json={"name": "Original Name", "form_schema": {"nome": "string"}}
+    )
+    assert create_resp.status_code == 200
+    queue_id = create_resp.json()["id"]
+
+    # Update name and enable QR rotation
+    update_resp = client.put(
+        f"/api/v1/b2b/queues/{queue_id}",
+        headers=headers,
+        json={"name": "Updated Name", "qr_rotation_enabled": True, "qr_rotation_interval": 120}
+    )
+    assert update_resp.status_code == 200
+    data = update_resp.json()
+    assert data["name"] == "Updated Name"
+    assert data["qr_rotation_enabled"] is True
+    assert data["qr_rotation_interval"] == 120
+    # form_schema unchanged
+    assert data["form_schema"]["nome"] == "string"
+
+
+def test_update_queue_config_not_found(client: TestClient, db_session: Session):
+    """Verifica que PUT em queue inexistente retorna 404."""
+    tenant = Tenant(name="Ghost Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    resp = client.put(
+        "/api/v1/b2b/queues/00000000-0000-0000-0000-000000000000",
+        headers={"x-tenant-token": token},
+        json={"name": "Won't work"}
+    )
+    assert resp.status_code == 404
+
+
+def test_update_queue_config_idor(client: TestClient, db_session: Session):
+    """Verifica que tenant B não consegue atualizar a queue do tenant A."""
+    t_a = Tenant(name="Owner Tenant")
+    t_b = Tenant(name="Attacker Tenant")
+    db_session.add_all([t_a, t_b])
+    db_session.commit()
+
+    token_a = create_mock_token(t_a.id)
+    token_b = create_mock_token(t_b.id)
+
+    create_resp = client.post(
+        "/api/v1/b2b/queues",
+        headers={"x-tenant-token": token_a},
+        json={"name": "Private Queue", "form_schema": {}}
+    )
+    queue_id = create_resp.json()["id"]
+
+    resp = client.put(
+        f"/api/v1/b2b/queues/{queue_id}",
+        headers={"x-tenant-token": token_b},
+        json={"name": "Hijacked"}
+    )
+    assert resp.status_code == 404

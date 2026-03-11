@@ -34,6 +34,7 @@ export default function QueueManagement() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [editQrEnabled, setEditQrEnabled] = useState(false);
     const [editQrInterval, setEditQrInterval] = useState(300);
+    const [settingsSaved, setSettingsSaved] = useState(false);
 
     const headers = getAuthHeaders();
 
@@ -160,6 +161,8 @@ export default function QueueManagement() {
                 qr_rotation_enabled: editQrEnabled,
                 qr_rotation_interval: editQrInterval
             }, { headers });
+            setSettingsSaved(true);
+            setTimeout(() => setSettingsSaved(false), 2000);
             showToast('Settings updated successfully');
             fetchQueue();
             setIsSettingsOpen(false);
@@ -354,10 +357,11 @@ export default function QueueManagement() {
                         <h2 className="heading-md">Queue Settings</h2>
                         <div className="form-group" style={{ marginTop: '20px', textAlign: 'left' }}>
                             <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={editQrEnabled} 
-                                    onChange={e => setEditQrEnabled(e.target.checked)} 
+                                <input
+                                    id="qr-rotation-toggle"
+                                    type="checkbox"
+                                    checked={editQrEnabled}
+                                    onChange={e => setEditQrEnabled(e.target.checked)}
                                 />
                                 Habilitar QR Code Rotativo (Anti-Fraude)
                             </label>
@@ -378,11 +382,16 @@ export default function QueueManagement() {
                                 </div>
                             )}
                         </div>
+                        {settingsSaved && (
+                            <p id="settings-saved" style={{ color: 'var(--accent-success)', fontSize: '0.85rem', marginTop: 12 }}>
+                                ✓ Saved!
+                            </p>
+                        )}
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
                             <button className="btn btn-secondary" onClick={() => setIsSettingsOpen(false)}>
                                 Cancel
                             </button>
-                            <button className="btn btn-primary" onClick={saveSettings}>
+                            <button id="save-settings-btn" className="btn btn-primary" onClick={saveSettings}>
                                 Save Changes
                             </button>
                         </div>

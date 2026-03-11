@@ -110,3 +110,105 @@ test.describe('Dashboard Display Links', () => {
         await expect(page).toHaveURL(new RegExp(`/dashboard/queue/${queueId}`));
     });
 });
+
+test.describe('Fase 4 — Rich Form Schema (B2C Join)', () => {
+    const RICH_TENANT = 'Rich Schema Display Corp';
+    const RICH_EMAIL = 'rich_operator@company.com';
+    const RICH_PASSWORD = 'rich_test_pass_999';
+
+    async function seedAndCreateRichQueue(page: Page): Promise<string> {
+        await page.request.post('/api/v1/test/seed-b2b', {
+            data: { tenant_name: RICH_TENANT, email: RICH_EMAIL, password: RICH_PASSWORD }
+        });
+        await page.goto('/login');
+        await page.fill('#login-email', RICH_EMAIL);
+        await page.fill('#login-password', RICH_PASSWORD);
+        const [loginResp] = await Promise.all([
+            page.waitForResponse('**/api/v1/auth/login'),
+            page.click('#login-submit')
+        ]);
+        await page.waitForURL('**/dashboard');
+        const token: string = (await loginResp.json()).access_token;
+
+        // Create queue via API with rich schema
+        const createResp = await page.request.post('/api/v1/b2b/queues', {
+            headers: { 'x-tenant-token': token },
+            data: {
+                name: 'Rich Schema Queue',
+                form_schema: {
+                    nome: { type: 'string', label: 'Nome completo', required: true },
+                    cpf: {
+                        type: 'string',
+                        label: 'CPF',
+                        required: false,
+                        pattern: String.raw`^\d{3}\.\d{3}\.\d{3}-\d{2}$`,
+                    },
+                    idade: { type: 'integer', label: 'Idade', required: true },
+                }
+            }
+        });
+        expect(createResp.ok()).toBeTruthy();
+        return (await createResp.json()).id;
+    }
+
+    test('join with rich schema — all required fields present succeeds', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        const resp = await page.request.post('/api/v1/queue/join', {
+            data: { queue_id: queueId, user_data: { nome: 'Maria', idade: 28 } }
+        });
+        expect(resp.ok()).toBeTruthy();
+        expect((await resp.json()).status).toBe('success');
+    });
+
+    test('join with rich schema — optional field absent succeeds', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        // cpf is optional — omitting it must succeed
+        const resp = await page.request.post('/api/v1/queue/join', {
+            data: { queue_id: queueId, user_data: { nome: 'Carlos', idade: 40 } }
+        });
+        expect(resp.ok()).toBeTruthy();
+    });
+
+    test('join with rich schema — required field missing returns 422', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        const resp = await page.request.post('/api/v1/queue/join', {
+            data: { queue_id: queueId, user_data: { idade: 30 } }
+        });
+        expect(resp.status()).toBe(422);
+        const data = await resp.json();
+        expect(data.detail.toLowerCase()).toContain('missing required field: nome');
+    });
+
+    test('join with rich schema — wrong type returns 422', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        const resp = await page.request.post('/api/v1/queue/join', {
+            data: { queue_id: queueId, user_data: { nome: 'Ana', idade: 'trinta' } }
+        });
+        expect(resp.status()).toBe(422);
+    });
+
+    test('join with rich schema — invalid CPF pattern returns 422', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        const resp = await page.request.post('/api/v1/queue/join', {
+            data: { queue_id: queueId, user_data: { nome: 'Pedro', cpf: '12345678900', idade: 22 } }
+        });
+        expect(resp.status()).toBe(422);
+        expect((await resp.json()).detail.toLowerCase()).toContain('pattern');
+    });
+
+    test('join with rich schema — valid CPF pattern succeeds', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        const resp = await page.request.post('/api/v1/queue/join', {
+            data: { queue_id: queueId, user_data: { nome: 'João', cpf: '123.456.789-00', idade: 35 } }
+        });
+        expect(resp.ok()).toBeTruthy();
+    });
+
+    test('B2CJoin page — renders labels from rich schema', async ({ page }) => {
+        const queueId = await seedAndCreateRichQueue(page);
+        await page.goto(`/join?q=${queueId}`);
+        // Labels defined in rich schema must appear in the form
+        await expect(page.locator('text=Nome completo')).toBeVisible({ timeout: 8000 });
+        await expect(page.locator('text=Idade')).toBeVisible({ timeout: 8000 });
+    });
+});

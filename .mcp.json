@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "remote_queue_context": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["/home/wsl/RemoteQueue/mcp_server/server.py"],
+      "env": {
+        "PYTHONPATH": "/home/wsl/RemoteQueue/mcp_server"
+      }
+    }
+  }
+}

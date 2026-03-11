@@ -4,14 +4,38 @@ import axios from 'axios';
 
 const API_BASE = '/api/v1';
 
+interface RichFieldDef {
+    type: string;
+    label?: string;
+    placeholder?: string;
+    required?: boolean;
+    pattern?: string;
+}
+
+type FieldDef = string | RichFieldDef;
+
 interface FormSchema {
-    [key: string]: string;
+    [key: string]: FieldDef;
 }
 
 interface QueueInfo {
     id: string;
     name: string;
     form_schema: FormSchema;
+}
+
+/** Normalises both simple ("string") and rich ({type,...}) field definitions. */
+function normaliseDef(key: string, def: FieldDef): Required<RichFieldDef> {
+    if (typeof def === 'string') {
+        return { type: def, label: key.charAt(0).toUpperCase() + key.slice(1), placeholder: '', required: true, pattern: '' };
+    }
+    return {
+        type: def.type ?? 'string',
+        label: def.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
+        placeholder: def.placeholder ?? '',
+        required: def.required ?? true,
+        pattern: def.pattern ?? '',
+    };
 }
 
 export default function B2CJoin() {
@@ -37,6 +61,7 @@ export default function B2CJoin() {
             .then(res => {
                 setQueueInfo(res.data);
                 const initial: Record<string, string> = {};
+                // Initialise all fields (both simple and rich) to empty string
                 Object.keys(res.data.form_schema).forEach(k => initial[k] = '');
                 setFormData(initial);
                 setStatus('form');
@@ -56,8 +81,11 @@ export default function B2CJoin() {
         if (!queueId) return;
 
         const user_data: Record<string, unknown> = {};
-        Object.entries(queueInfo!.form_schema).forEach(([key, type]) => {
+        Object.entries(queueInfo!.form_schema).forEach(([key, def]) => {
+            const { type, required } = normaliseDef(key, def);
             const raw = formData[key];
+            // Skip optional empty fields — backend handles the absence correctly
+            if (!required && raw === '') return;
             if (type === 'integer') user_data[key] = parseInt(raw) || 0;
             else if (type === 'boolean') user_data[key] = raw.toLowerCase() === 'true';
             else user_data[key] = raw;
@@ -109,23 +137,28 @@ export default function B2CJoin() {
         return () => { wsRef.current?.close(); };
     }, []);
 
-    const renderField = (key: string, type: string) => (
-        <div className="form-group" key={key}>
-            <label className="form-label" htmlFor={`field-${key}`}>
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-                {type !== 'string' && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({type})</span>}
-            </label>
-            <input
-                id={`field-${key}`}
-                className="form-input"
-                data-testid={`input-${key}`}
-                type={type === 'integer' ? 'number' : 'text'}
-                value={formData[key] ?? ''}
-                onChange={e => setFormData(prev => ({ ...prev, [key]: e.target.value }))}
-                required
-            />
-        </div>
-    );
+    const renderField = (key: string, def: FieldDef) => {
+        const { type, label, placeholder, required } = normaliseDef(key, def);
+        return (
+            <div className="form-group" key={key}>
+                <label className="form-label" htmlFor={`field-${key}`}>
+                    {label}
+                    {!required && <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontSize: '0.8em' }}>(opcional)</span>}
+                    {type !== 'string' && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({type})</span>}
+                </label>
+                <input
+                    id={`field-${key}`}
+                    className="form-input"
+                    data-testid={`input-${key}`}
+                    type={type === 'integer' ? 'number' : 'text'}
+                    placeholder={placeholder}
+                    value={formData[key] ?? ''}
+                    onChange={e => setFormData(prev => ({ ...prev, [key]: e.target.value }))}
+                    required={required}
+                />
+            </div>
+        );
+    };
 
     return (
         <div className="page-container">
@@ -149,7 +182,7 @@ export default function B2CJoin() {
                     <p className="subtitle">Fill in your information to join the queue</p>
                     {errorMsg && <div className="alert alert-error">{errorMsg}</div>}
                     <form onSubmit={handleJoin}>
-                        {Object.entries(queueInfo.form_schema).map(([key, type]) => renderField(key, type))}
+                        {Object.entries(queueInfo.form_schema).map(([key, def]) => renderField(key, def))}
                         <button id="join-submit" className="btn btn-primary btn-full" type="submit" style={{ marginTop: 8 }}>
                             Join Queue
                         </button>

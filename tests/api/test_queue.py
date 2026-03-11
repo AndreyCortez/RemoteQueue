@@ -36,6 +36,127 @@ def test_queue_config(db_session):
     db_session.refresh(queue)
     return queue
 
+# ── Fase 4: rich schema fixtures ──────────────────────────────────────────────
+
+@pytest.fixture
+def rich_schema_queue(db_session):
+    """Queue com form_schema rico (Fase 4): label, required, pattern."""
+    from api.database.models import Tenant, QueueConfig
+    tenant = Tenant(name="Rich Schema Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    queue = QueueConfig(
+        tenant_id=tenant.id,
+        name="Rich Schema Queue",
+        form_schema={
+            "nome": {
+                "type": "string",
+                "label": "Nome completo",
+                "placeholder": "Ex: João Silva",
+                "required": True,
+            },
+            "cpf": {
+                "type": "string",
+                "label": "CPF",
+                "required": False,
+                "pattern": r"^\d{3}\.\d{3}\.\d{3}-\d{2}$",
+            },
+            "idade": {
+                "type": "integer",
+                "label": "Idade",
+                "required": True,
+            },
+        }
+    )
+    db_session.add(queue)
+    db_session.commit()
+    db_session.refresh(queue)
+    return queue
+
+
+def test_join_rich_schema_success(rich_schema_queue):
+    """Campo opcional ausente e campo com pattern válido."""
+    payload = {
+        "queue_id": str(rich_schema_queue.id),
+        "user_data": {"nome": "Maria", "cpf": "123.456.789-00", "idade": 28}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+
+
+def test_join_rich_schema_optional_field_absent(rich_schema_queue):
+    """Campo 'cpf' é opcional — deve aceitar sem ele."""
+    payload = {
+        "queue_id": str(rich_schema_queue.id),
+        "user_data": {"nome": "Carlos", "idade": 40}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_rich_schema_required_field_missing(rich_schema_queue):
+    """Campo 'nome' é obrigatório — deve rejeitar."""
+    payload = {
+        "queue_id": str(rich_schema_queue.id),
+        "user_data": {"idade": 30}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "missing required field: nome" in resp.json()["detail"].lower()
+
+
+def test_join_rich_schema_wrong_type(rich_schema_queue):
+    """'idade' deve ser integer — string deve ser rejeitado."""
+    payload = {
+        "queue_id": str(rich_schema_queue.id),
+        "user_data": {"nome": "Ana", "idade": "trinta"}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "integer" in resp.json()["detail"].lower()
+
+
+def test_join_rich_schema_pattern_invalid(rich_schema_queue):
+    """'cpf' com valor que não bate no pattern deve ser rejeitado."""
+    payload = {
+        "queue_id": str(rich_schema_queue.id),
+        "user_data": {"nome": "Pedro", "cpf": "12345678900", "idade": 22}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "pattern" in resp.json()["detail"].lower()
+
+
+def test_join_rich_schema_backwards_compat(db_session):
+    """Schema simples antigo ainda deve funcionar ao lado do rico."""
+    from api.database.models import Tenant, QueueConfig
+    tenant = Tenant(name="Compat Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    queue = QueueConfig(
+        tenant_id=tenant.id,
+        name="Legacy Schema Queue",
+        form_schema={"nome": "string", "idade": "integer"}
+    )
+    db_session.add(queue)
+    db_session.commit()
+    db_session.refresh(queue)
+
+    payload = {
+        "queue_id": str(queue.id),
+        "user_data": {"nome": "Legado", "idade": 50}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+# ── Testes originais ───────────────────────────────────────────────────────────
+
 def test_get_queue_public_info_not_found():
     response = client.get("/api/v1/queue/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404

@@ -41,6 +41,8 @@ Thumbs.db
 # Testing
 coverage/
 .nyc_output/
+e2e/test-results/
+e2e/playwright-report/
 
 # Docker (se estiver usando)
 .docker/
