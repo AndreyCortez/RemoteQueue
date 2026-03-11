@@ -9,6 +9,8 @@ import fakeredis
 fake_redis = fakeredis.FakeRedis(decode_responses=True)
 app.dependency_overrides[get_redis_client] = lambda: fake_redis
 
+# Module-level client kept for backward compat with existing tests that reference
+# it directly. New tests should prefer the `client` fixture from conftest.py.
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
@@ -214,6 +216,18 @@ def test_get_queue_status_public(test_queue_config):
     data = response.json()
     assert data["name"] == "Test Public Queue"
     assert data["queue_size"] == 1  # Based on router implementation returning queue_size
+
+def test_qrcode_public_success(test_queue_config):
+    resp = client.get(f"/api/v1/queue/{test_queue_config.id}/qrcode-public")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content.startswith(b'\x89PNG')
+
+
+def test_qrcode_public_not_found():
+    resp = client.get("/api/v1/queue/00000000-0000-0000-0000-000000000000/qrcode-public")
+    assert resp.status_code == 404
+
 
 def test_get_current_qr_rotation_disabled(test_queue_config):
     response = client.get(f"/api/v1/queue/{test_queue_config.id}/current-qr")

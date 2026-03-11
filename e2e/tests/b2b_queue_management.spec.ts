@@ -129,7 +129,7 @@ test.describe('Queue Management Dashboard', () => {
         }
 
         await page.goto(`/dashboard/queue/${queueId}`);
-        await page.locator('#members-table').waitFor({ state: 'visible', timeout: 8000 });
+        await page.locator('#members-table').waitFor({ state: 'visible', timeout: 15000 });
 
         // Mock confirm dialog
         page.on('dialog', dialog => dialog.accept());

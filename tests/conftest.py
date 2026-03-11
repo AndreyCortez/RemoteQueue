@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -15,6 +15,14 @@ _test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+@event.listens_for(_test_engine, "connect")
+def _set_sqlite_fk_pragma(dbapi_conn, _):
+    """Enforce foreign key constraints in SQLite to match PostgreSQL behaviour."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 _TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_test_engine)
 
 # Patch the engine and SessionLocal in postgres before importing the app

@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 import os
 
 from api.database.postgres import get_db
-from api.database.models import Tenant, B2BUser, QueueConfig
+from api.database.models import Tenant, B2BUser, QueueConfig, QueueEntry
 from api.database.redis import get_redis_client
 
 router = APIRouter(prefix="/api/v1/test", tags=["Test Seed"])
@@ -35,6 +35,8 @@ def seed_b2b_user(payload: SeedRequest, db: Session = Depends(get_db)):
     if existing:
         # Wipe old state so each test run starts fresh
         tenant_id = existing.tenant_id
+        # Delete entries first (FK: queue_entries.queue_id → queue_configs.id)
+        db.query(QueueEntry).filter(QueueEntry.tenant_id == tenant_id).delete()
         db.query(QueueConfig).filter(QueueConfig.tenant_id == tenant_id).delete()
         db.commit()
 
