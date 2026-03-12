@@ -232,6 +232,42 @@ export default function QueueManagement() {
                 </div>
             </div>
 
+            {/* Public links card */}
+            <div className="card" style={{ marginBottom: 24, padding: '16px 24px' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12, fontWeight: 600 }}>
+                    Links Públicos
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    <a
+                        href={`/join?q=${queueId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary btn-sm"
+                        data-testid="link-join"
+                    >
+                        📱 Formulário de Entrada (B2C)
+                    </a>
+                    <a
+                        href={`/display/qr?q=${queueId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary btn-sm"
+                        data-testid="link-qr-display"
+                    >
+                        🖥️ Tela do Totem (QR Code)
+                    </a>
+                    <a
+                        href={`/display/status?q=${queueId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary btn-sm"
+                        data-testid="link-status-display"
+                    >
+                        📺 Tela da TV (Status)
+                    </a>
+                </div>
+            </div>
+
             {/* Called user banner */}
             {calledUser && (
                 <div

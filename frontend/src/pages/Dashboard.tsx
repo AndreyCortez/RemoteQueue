@@ -218,14 +218,34 @@ export default function Dashboard() {
                                             Fields: {Object.keys(q.form_schema).join(', ') || 'none'}
                                         </div>
                                     </div>
-                                    <button
-                                        className="btn btn-secondary btn-sm"
-                                        data-testid={`qr-btn-${q.id}`}
-                                        onClick={(e) => openQrCode(e, q.id, q.name)}
-                                        title="View QR Code"
-                                    >
-                                        QR Code
-                                    </button>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
+                                        <a
+                                            href={`/display/qr?q=${q.id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="btn btn-secondary btn-sm"
+                                            title="Abrir tela do totem (QR Code fullscreen)"
+                                        >
+                                            🖥️ Totem
+                                        </a>
+                                        <a
+                                            href={`/display/status?q=${q.id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="btn btn-secondary btn-sm"
+                                            title="Abrir tela da TV (status ao vivo)"
+                                        >
+                                            📺 TV
+                                        </a>
+                                        <button
+                                            className="btn btn-secondary btn-sm"
+                                            data-testid={`qr-btn-${q.id}`}
+                                            onClick={(e) => openQrCode(e, q.id, q.name)}
+                                            title="View QR Code"
+                                        >
+                                            QR Code
+                                        </button>
+                                    </div>
                                 </li>
                             ))}
                         </ul>

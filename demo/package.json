@@ -1,0 +1,11 @@
+{
+  "name": "remote-queue-demo",
+  "private": true,
+  "scripts": {
+    "demo": "npx playwright test --config=playwright.config.ts",
+    "install-browser": "npx playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0"
+  }
+}

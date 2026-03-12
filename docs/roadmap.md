@@ -1,113 +1,257 @@
 ---
-title: Roadmap — Próximos Passos
-description: Fases 3 e 4 detalhadas, débitos técnicos e melhorias de infraestrutura planejadas.
-tags: [roadmap, next-steps, planning]
+title: Roadmap — MVP do Remote Queue
+description: Definição completa de todas as fases para o MVP de produção, com status atual de cada item.
+tags: [roadmap, mvp, planning]
 ---
 
-# Roadmap — Remote Queue
+# Roadmap — Remote Queue MVP
 
 ## Estado Atual
 
 ```
-Fase 1 ✅  Fase 2 ✅  Fase 3 ✅  Fase 4 ✅ (backend+frontend)  |  Infra ✅ (débitos críticos)
+Fase 1 ✅  Multi-tenant B2B + B2C com Redis ZSET
+Fase 2 ✅  Dashboard + Queue Management + WebSocket real-time
+Fase 3 ✅  QR Code Rotativo (Anti-Fraude)
+Fase 4 ✅  Rich Form Schema (labels, placeholder, pattern, required/optional)
+Infra  ✅  Alembic migrations, structured JSON logging, Docker Compose, CI pipeline
+Demo   ✅  Script Playwright automatizado com narração visual (demo/)
 ```
 
 ---
 
-## ✅ Fase 3 — QR Code Rotativo (Anti-Fraude)
+## Fase 5 — Registro e Autenticação Completa
 
-**Problema a resolver:** Hoje o QR Code de uma fila é estático e permanente. Qualquer pessoa com o link `/join?q=<id>` pode entrar na fila sem estar fisicamente no local, inclusive dias depois.
+> **Bloqueio MVP**: Hoje não existe signup. Usuários são criados via seed manual.
 
-**Solução proposta:** QR Code com código de acesso de curta duração (TTL).
+### 5.1 Registro de Operador B2B
+- [ ] `POST /api/v1/auth/register` — cria Tenant + B2BUser em uma transação
+- [ ] Frontend: página `/register` com campos: nome da empresa, email, senha, confirmar senha
+- [ ] Validação de email único (409 se já existe)
+- [ ] Redirect automático para `/dashboard` após registro
+- [ ] Link "Criar conta" na página de login
+- [ ] Testes unitários + E2E do fluxo completo
 
-### Backend
+### 5.2 Verificação de Email
+- [ ] Campo `email_verified: bool` no modelo `B2BUser` (migration Alembic)
+- [ ] Envio de email de confirmação com token JWT (expiração 24h)
+- [ ] `GET /api/v1/auth/verify-email?token=<jwt>` — marca email como verificado
+- [ ] Integração com serviço de email (SendGrid / AWS SES / Resend)
+- [ ] Reenviar email de verificação
+- [ ] Bloquear acesso ao dashboard até verificação (ou permitir com banner de aviso)
 
-- Novos campos em `QueueConfig`:
-  ```python
-  qr_rotation_enabled: bool = False
-  qr_rotation_interval: int = 300  # segundos (padrão 5 min)
-  ```
-- `QueueManager` → dois novos métodos Redis:
-  ```python
-  def generate_access_code(queue_id: str, ttl: int) -> str:
-      # Gera token aleatório, armazena com SETEX (TTL automático)
-      code = secrets.token_urlsafe(8)
-      redis.setex(f"access_code:{queue_id}", ttl, code)
-      return code
+### 5.3 Recuperação de Senha
+- [ ] `POST /api/v1/auth/forgot-password` — envia email com link de reset
+- [ ] `POST /api/v1/auth/reset-password` — valida token e atualiza senha
+- [ ] Frontend: páginas `/forgot-password` e `/reset-password?token=<jwt>`
+- [ ] Rate limiting no endpoint de forgot-password (max 5/hora por email)
 
-  def validate_access_code(queue_id: str, code: str) -> bool:
-      stored = redis.get(f"access_code:{queue_id}")
-      return stored == code
-  ```
-- `POST /queue/join` → valida `access_code` quando rotação está ativa
-- Endpoint público `GET /api/v1/queue/{id}/current-qr` → retorna código atual (para os displays)
-
-### Frontend
-- [x] `QRDisplay.tsx` → polling automático via `setTimeout` quando `rotation_enabled=true`
-- [x] `QueueManagement.tsx` → modal Settings com toggle `#qr-rotation-toggle` + select de intervalo + `#save-settings-btn`
-
-### Testes
-- [x] Unit: geração, validação e expiração do código (`tests/api/test_queue.py`)
-- [x] E2E: join com código válido / inválido / expirado + toggle settings (`e2e/tests/qr_rotation.spec.ts`)
+### 5.4 Gestão de Operadores (Multi-Usuário por Tenant)
+- [ ] `GET /api/v1/b2b/tenant/users` — listar operadores do tenant
+- [ ] `POST /api/v1/b2b/tenant/invite` — convidar operador por email
+- [ ] `DELETE /api/v1/b2b/tenant/users/{user_id}` — remover operador
+- [ ] Roles: `admin` (tudo) vs `operator` (só gestão de fila)
+- [ ] Frontend: aba "Equipe" no dashboard
 
 ---
 
-## ✅ Fase 4 — Form Builder Avançado + Configurações
+## Fase 6 — CRUD Completo de Filas e Tenant
 
-**Problema a resolver:** O `form_schema` atual é simplificado (`{"campo": "tipo"}`). Não suporta labels customizados, placeholders, campos obrigatórios/opcionais, ou validações específicas.
+### 6.1 Exclusão de Fila
+- [ ] `DELETE /api/v1/b2b/queues/{queue_id}` — soft delete ou hard delete com cleanup
+- [ ] Limpar chave Redis associada
+- [ ] Marcar `QueueEntry` como `queue_deleted`
+- [ ] Botão "Excluir fila" no dashboard com confirmação
+- [ ] Testes unitários + E2E
 
-**Solução proposta:** Schema rico com metadados por campo.
+### 6.2 Perfil e Configurações do Tenant
+- [ ] `GET /api/v1/b2b/tenant` — dados do tenant
+- [ ] `PUT /api/v1/b2b/tenant` — editar nome, logo, configurações
+- [ ] Frontend: página `/dashboard/settings` com dados da empresa
+- [ ] Upload de logo (S3 ou storage local)
+- [ ] Personalização de cores/branding nas telas públicas
 
-### Novo formato `form_schema`
-
-```json
-{
-  "nome": {
-    "type": "string",
-    "label": "Nome completo",
-    "placeholder": "Ex: João Silva",
-    "required": true
-  },
-  "cpf": {
-    "type": "string",
-    "label": "CPF",
-    "placeholder": "000.000.000-00",
-    "required": false,
-    "pattern": "^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$"
-  }
-}
-```
-
-### Compatibilidade
-- [x] Migração backwards-compatible em `validate_payload_against_schema` (`api/routers/queue.py`)
-- [x] `B2CJoin.tsx` → renderiza `label`, `placeholder`, `required` do schema rico; campos opcionais marcados e não enviados quando vazios
-- [x] Unit tests: schema rico, campos opcionais, pattern regex, backwards compat (`tests/api/test_queue.py`)
-- [x] E2E tests via API + labels no frontend (`e2e/tests/display_pages.spec.ts`)
-- [ ] `QueueSettings.tsx` → interface drag-and-drop para construir o schema (Fase 4 avançada, futuro)
+### 6.3 Alteração de Senha
+- [ ] `PUT /api/v1/auth/change-password` — requer senha atual + nova senha
+- [ ] Frontend: seção no perfil do operador
 
 ---
 
-## 🔲 Débitos Técnicos e Infraestrutura
+## Fase 7 — Hardening de Segurança
 
-### Alta Prioridade
-- [x] **E2E Docker**: Rodar os suites Playwright contra o Docker Compose completo
-- [x] **`.gitignore` e2e/test-results/**: Adicionado `e2e/test-results/` e `e2e/playwright-report/` ao `.gitignore`
-- [x] **Pydantic V2 Upgrade**: `api/config.py` migrado de `class Config` para `SettingsConfigDict`
-- [x] **Rate Limiting WebSockets**: `limit_conn_zone` + `limit_conn ws_limit 20` já configurados em `frontend/nginx.conf`
-- [x] **Alembic Migrations**: `Base.metadata.create_all` substituído por migrações versionadas (`alembic upgrade head` no startup do Docker)
-- [x] **Logs estruturados**: `JsonFormatter` + `RequestLoggingMiddleware` com `trace_id` por request (`api/logging_config.py`)
+### 7.1 CORS
+- [ ] Adicionar `CORSMiddleware` no `api/main.py`
+- [ ] Whitelist de origens configurável via env var `ALLOWED_ORIGINS`
+- [ ] Bloquear `*` em produção
 
-### Média Prioridade
-- [x] **Cobertura de testes**: `test_seed.py` 100% (era 43%) — global 91% com 45 testes passando
-- [ ] **Dashboard Analytics**: Gráficos baseados em `queue_entries` (tempo médio, pico de horário)
-- [ ] **Notificações Push**: Alerta pro cliente B2C quando está em 2ª posição
-- [ ] **Multi-fila por Tablet**: `QRDisplay` listando múltiplas filas do tenant
+### 7.2 Rate Limiting
+- [ ] Rate limiting por endpoint em rotas de auth (`/login`, `/register`, `/forgot-password`)
+- [ ] Rate limiting por IP no join de fila (prevenir spam)
+- [ ] Implementar via `slowapi` ou middleware customizado com Redis
 
-### Baixa Prioridade
-- [ ] **Flutter Mobile App B2C**: App nativo para substituir o PWA em `/join`
-- [ ] **Webhook**: Notificar sistemas externos quando membro é chamado
-- [ ] **Exportar histórico CSV/PDF**: Dashboard de relatório do operador
+### 7.3 Segredos e Configuração
+- [ ] `SECRET_KEY` obrigatoriamente via env var (falhar startup se ausente em produção)
+- [ ] Criar `.env.example` documentando todas as variáveis obrigatórias e opcionais
+- [ ] Validação de `ENVIRONMENT` (development | staging | production)
+- [ ] Desabilitar `/api/v1/test/*` automaticamente em produção (já parcial)
+
+### 7.4 Sanitização de Input
+- [ ] Escapar HTML em `user_data` antes de salvar (prevenir XSS via dados de fila)
+- [ ] Limitar tamanho de `user_data` (max 10 campos, max 500 chars por valor)
+- [ ] Validar `queue_name` (max 100 chars, sem caracteres especiais perigosos)
+
+### 7.5 HTTPS/SSL
+- [ ] Configuração Nginx com certificado SSL (Let's Encrypt via Certbot)
+- [ ] Redirect HTTP → HTTPS
+- [ ] Headers de segurança: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`
 
 ---
 
+## Fase 8 — Infraestrutura de Produção
 
+### 8.1 Deploy
+- [ ] Documentação de deploy (`docs/DEPLOYMENT.md`)
+- [ ] Docker Compose de produção (`docker-compose.prod.yml`) com:
+  - Volumes persistentes para Postgres
+  - Restart policies
+  - Resource limits
+  - SSL termination
+- [ ] Script de backup do PostgreSQL (pg_dump agendado via cron)
+- [ ] Estratégia de restore documentada
+
+### 8.2 Monitoramento
+- [ ] Endpoint `/metrics` (Prometheus-compatible)
+- [ ] Integração Sentry para error tracking (backend + frontend)
+- [ ] Alertas básicos: error rate > threshold, container down, disk > 90%
+- [ ] Dashboard Grafana (opcional, nice-to-have)
+
+### 8.3 CI/CD
+- [x] GitHub Actions: unit tests com coverage gate (90%)
+- [x] GitHub Actions: E2E Playwright contra Docker Compose
+- [ ] Build e push de imagens Docker para registry (GitHub Container Registry / ECR)
+- [ ] Deploy automático para staging em push para `main`
+- [ ] Deploy para produção via tag/release
+
+### 8.4 Health Checks
+- [x] `GET /` retorna `{"status": "healthy"}`
+- [ ] Health check detalhado: `GET /api/v1/health` — verifica Postgres + Redis connectivity
+- [ ] Frontend health check (Nginx alive)
+
+---
+
+## Fase 9 — UX e Páginas Essenciais
+
+### 9.1 Páginas de Erro
+- [ ] Página 404 customizada (rota catch-all `*` no React Router)
+- [ ] Página de erro genérica (500, rede indisponível)
+- [ ] Tratamento gracioso de WebSocket desconectado (reconnect automático + banner)
+
+### 9.2 Landing Page
+- [ ] Redesign da `/` com:
+  - Explicação do produto (hero section)
+  - Features principais com ícones
+  - CTA "Criar conta grátis" e "Fazer login"
+  - Screenshot/demo do produto
+- [ ] SEO básico: meta tags, Open Graph, título descritivo
+
+### 9.3 Páginas Legais
+- [ ] Termos de Uso (`/terms`)
+- [ ] Política de Privacidade (`/privacy`)
+- [ ] Link no footer de todas as páginas
+
+### 9.4 Melhorias de UX
+- [ ] Loading skeletons nas listas (em vez de spinner genérico)
+- [ ] Feedback tátil nos botões (hover, active states já existem, verificar mobile)
+- [ ] Toast/notification system unificado (em vez de alerts inline)
+- [ ] Confirmação visual de ações destrutivas (modal em vez de `window.confirm`)
+
+---
+
+## Fase 10 — Features de Produto (Pós-MVP)
+
+> Itens que agregam valor mas não bloqueiam o lançamento.
+
+### 10.1 Analytics e Relatórios
+- [ ] Dashboard de métricas: tempo médio na fila, pico de horário, volume diário
+- [ ] Gráficos baseados em `queue_entries` (Chart.js ou Recharts)
+- [ ] Exportar histórico CSV/PDF
+
+### 10.2 Notificações
+- [ ] Push notification para B2C quando está em 2ª posição
+- [ ] SMS opcional (Twilio) quando cliente é chamado
+- [ ] Webhook: notificar sistemas externos quando membro é chamado (`POST` configurável)
+
+### 10.3 Multi-Fila por Display
+- [ ] `QRDisplay` listando múltiplas filas do tenant no mesmo totem
+- [ ] `StatusDisplay` com tabs ou grid para múltiplas filas
+
+### 10.4 Integrações
+- [ ] API pública documentada com API keys para integração de terceiros
+- [ ] Zapier/Make integration triggers
+- [ ] Embed widget (iframe) para sites dos clientes
+
+### 10.5 App Nativo
+- [ ] Flutter/React Native app B2C para substituir o PWA em `/join`
+- [ ] Push notifications nativas
+- [ ] Histórico de filas que o usuário participou
+
+### 10.6 Internacionalização
+- [ ] i18n no frontend (pt-BR, en, es)
+- [ ] Idioma configurável por tenant
+- [ ] Labels do schema em múltiplos idiomas
+
+---
+
+## Priorização para MVP
+
+### 🔴 Bloqueadores (Fase 5-7 parcial) — Sem isso não lança
+
+| # | Item | Fase |
+|---|------|------|
+| 1 | Registro de operador B2B (signup) | 5.1 |
+| 2 | Exclusão de fila | 6.1 |
+| 3 | CORS middleware | 7.1 |
+| 4 | `.env.example` + secrets via env var | 7.3 |
+| 5 | HTTPS/SSL | 7.5 |
+| 6 | Documentação de deploy | 8.1 |
+| 7 | Backup de banco | 8.1 |
+| 8 | Página 404 | 9.1 |
+
+### 🟡 Importantes (lançar logo depois)
+
+| # | Item | Fase |
+|---|------|------|
+| 9 | Recuperação de senha | 5.3 |
+| 10 | Verificação de email | 5.2 |
+| 11 | Rate limiting auth | 7.2 |
+| 12 | Sanitização de input | 7.4 |
+| 13 | Health check detalhado | 8.4 |
+| 14 | Landing page | 9.2 |
+| 15 | Sentry error tracking | 8.2 |
+| 16 | Perfil do tenant | 6.2 |
+| 17 | Páginas legais | 9.3 |
+
+### 🟢 Nice-to-have (roadmap pós-lançamento)
+
+| # | Item | Fase |
+|---|------|------|
+| 18 | Multi-operador por tenant | 5.4 |
+| 19 | Analytics/relatórios | 10.1 |
+| 20 | Notificações push/SMS | 10.2 |
+| 21 | Multi-fila por display | 10.3 |
+| 22 | Webhook | 10.4 |
+| 23 | App nativo | 10.5 |
+| 24 | i18n | 10.6 |
+| 25 | Deploy automático | 8.3 |
+
+---
+
+## Changelog
+
+| Data | Mudança |
+|------|---------|
+| 2025-05 | Fases 1-2 completas (multi-tenant, dashboard, WebSocket) |
+| 2025-06 | Fase 3 completa (QR rotativo anti-fraude) |
+| 2025-06 | Fase 4 completa (rich form schema) |
+| 2025-07 | Infra: Alembic migrations, structured logging, CI pipeline |
+| 2026-03 | Demo automatizado (Playwright com narração visual) |
+| 2026-03 | Roadmap reescrito para MVP de produção (Fases 5-10) |
