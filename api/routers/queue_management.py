@@ -70,7 +70,7 @@ def list_queue_members(
 
 
 @router.delete("/{queue_id}/members")
-def remove_queue_member(
+async def remove_queue_member(
     queue_id: str,
     request: RemoveMemberRequest,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -86,11 +86,16 @@ def remove_queue_member(
         raise HTTPException(status_code=404, detail="Member not found in queue")
 
     _persist_entry(db, queue_id, tenant_id, request.user_data, "removed")
+    queue_size = mgr.get_queue_size(tenant_id, queue_id)
+    await websocket_manager.broadcast_to_queue(queue_id, {
+        "event": "queue_updated",
+        "queue_size": queue_size,
+    })
     return {"status": "member_removed"}
 
 
 @router.put("/{queue_id}/members/reorder")
-def reorder_queue_member(
+async def reorder_queue_member(
     queue_id: str,
     request: ReorderMemberRequest,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -105,6 +110,7 @@ def reorder_queue_member(
     if not success:
         raise HTTPException(status_code=400, detail="Could not reorder member")
 
+    await websocket_manager.broadcast_to_queue(queue_id, {"event": "queue_reordered"})
     return {"status": "member_reordered", "new_position": request.target_position}
 
 
@@ -143,10 +149,12 @@ async def call_next_member(
         raise HTTPException(status_code=404, detail="queue_is_empty")
 
     _persist_entry(db, queue_id, tenant_id, user_data, "called")
+    queue_size = mgr.get_queue_size(tenant_id, queue_id)
 
     await websocket_manager.broadcast_to_queue(queue_id, {
         "event": "queue_member_called",
-        "called": user_data
+        "called": user_data,
+        "queue_size": queue_size,
     })
 
     return {"status": "user_called", "user_data": user_data}

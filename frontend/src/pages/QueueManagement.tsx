@@ -30,11 +30,10 @@ export default function QueueManagement() {
     const [calledUser, setCalledUser] = useState<Record<string, unknown> | null>(null);
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
-    // Settings Modal
+    // Settings panel
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [editQrEnabled, setEditQrEnabled] = useState(false);
     const [editQrInterval, setEditQrInterval] = useState(300);
-    const [settingsSaved, setSettingsSaved] = useState(false);
 
     const headers = getAuthHeaders();
 
@@ -85,15 +84,15 @@ export default function QueueManagement() {
         try {
             const res = await axios.post(`${API_BASE}/b2b/queue/${queueId}/call-next`, {}, { headers });
             setCalledUser(res.data.user_data);
-            showToast('Next person called! ✓');
+            showToast('Próxima pessoa chamada! ✓');
             fetchMembers();
         } catch (err: unknown) {
             if (axios.isAxiosError(err)) {
                 const detail = err.response?.data?.detail;
-                if (detail === 'queue_is_empty') showToast('Queue is empty!', 'error');
-                else showToast('Error calling next', 'error');
+                if (detail === 'queue_is_empty') showToast('A fila está vazia!', 'error');
+                else showToast('Erro ao chamar próximo', 'error');
             } else {
-                showToast('An unexpected error occurred', 'error');
+                showToast('Erro inesperado', 'error');
             }
         }
     };
@@ -104,10 +103,10 @@ export default function QueueManagement() {
                 headers,
                 data: { user_data: member.user_data }
             });
-            showToast('Member removed');
+            showToast('Removido da fila');
             setMembers(prev => prev.filter(m => m.position !== member.position));
         } catch {
-            showToast('Failed to remove member', 'error');
+            showToast('Erro ao remover', 'error');
         }
     };
 
@@ -120,7 +119,7 @@ export default function QueueManagement() {
             }, { headers });
             fetchMembers();
         } catch {
-            showToast('Failed to reorder', 'error');
+            showToast('Erro ao reordenar', 'error');
         }
     };
 
@@ -133,18 +132,18 @@ export default function QueueManagement() {
             }, { headers });
             fetchMembers();
         } catch {
-            showToast('Failed to reorder', 'error');
+            showToast('Erro ao reordenar', 'error');
         }
     };
 
     const handleClearAll = async () => {
-        if (!confirm('Clear all members from the queue? This cannot be undone.')) return;
+        if (!confirm('Remover todos da fila? Esta ação não pode ser desfeita.')) return;
         try {
             const res = await axios.post(`${API_BASE}/b2b/queue/${queueId}/clear`, {}, { headers });
-            showToast(`Cleared ${res.data.removed_count} members`);
+            showToast(`${res.data.removed_count} removido(s) da fila`);
             setMembers([]);
         } catch {
-            showToast('Failed to clear queue', 'error');
+            showToast('Erro ao limpar fila', 'error');
         }
     };
 
@@ -161,13 +160,11 @@ export default function QueueManagement() {
                 qr_rotation_enabled: editQrEnabled,
                 qr_rotation_interval: editQrInterval
             }, { headers });
-            setSettingsSaved(true);
-            setTimeout(() => setSettingsSaved(false), 2000);
-            showToast('Settings updated successfully');
+            showToast('Configurações salvas com sucesso');
             fetchQueue();
             setIsSettingsOpen(false);
         } catch {
-            showToast('Failed to update settings', 'error');
+            showToast('Erro ao salvar configurações', 'error');
         }
     };
 
@@ -192,26 +189,26 @@ export default function QueueManagement() {
             <div className="dashboard-header">
                 <div>
                     <button className="btn btn-secondary btn-sm" onClick={() => navigate('/dashboard')}
-                        style={{ marginBottom: 8 }}>← Back to Dashboard</button>
+                        style={{ marginBottom: 8 }}>← Voltar</button>
                     <h1 className="heading-lg" style={{ marginBottom: 0 }}>
                         {queue?.name || '...'}
                         {queue?.qr_rotation_enabled && (
-                            <span style={{ marginLeft: 12, fontSize: '0.9rem', color: 'var(--accent-primary)', padding: '2px 8px', background: 'rgba(99,102,241,0.1)', borderRadius: 12 }}>
-                                🔄 Anti-Fraude Ativo
+                            <span style={{ marginLeft: 12, fontSize: '0.9rem', color: 'var(--accent-primary)', padding: '2px 8px', background: 'var(--accent-glow)', borderRadius: 12 }}>
+                                🔄 QR com código temporário
                             </span>
                         )}
                     </h1>
                     <p className="subtitle" style={{ marginBottom: 0 }}>
-                        {members.length} {members.length === 1 ? 'person' : 'people'} in queue
+                        {members.length} {members.length === 1 ? 'pessoa' : 'pessoas'} na fila
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
                         className="btn btn-secondary"
                         onClick={openSettings}
-                        title="Queue Settings"
+                        title="Configurações da fila"
                     >
-                        ⚙️ Settings
+                        ⚙️ Configurações
                     </button>
                     <button
                         id="call-next-btn"
@@ -219,7 +216,7 @@ export default function QueueManagement() {
                         onClick={handleCallNext}
                         disabled={members.length === 0}
                     >
-                        Call Next ▶
+                        Chamar Próximo ▶
                     </button>
                     <button
                         id="clear-all-btn"
@@ -227,10 +224,59 @@ export default function QueueManagement() {
                         onClick={handleClearAll}
                         disabled={members.length === 0}
                     >
-                        Clear All ✕
+                        Limpar Fila ✕
                     </button>
                 </div>
             </div>
+
+            {/* SETTINGS PANEL — progressive disclosure, matches Dashboard pattern */}
+            {isSettingsOpen && (
+                <div className="card" style={{ maxWidth: 'none', marginBottom: 24 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                        <h2 className="heading-md" style={{ marginBottom: 0 }}>Configurações da Fila</h2>
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setIsSettingsOpen(false)}
+                            aria-label="Fechar configurações"
+                        >✕</button>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                            <input
+                                id="qr-rotation-toggle"
+                                type="checkbox"
+                                checked={editQrEnabled}
+                                onChange={e => setEditQrEnabled(e.target.checked)}
+                            />
+                            QR Code com senha temporária — impede entradas duplicadas
+                        </label>
+                        {editQrEnabled && (
+                            <div style={{ marginTop: 10, maxWidth: 280 }}>
+                                <label className="form-label" htmlFor="edit-qr-interval">Trocar a senha a cada</label>
+                                <select
+                                    id="edit-qr-interval"
+                                    className="form-select"
+                                    value={editQrInterval}
+                                    onChange={e => setEditQrInterval(Number(e.target.value))}
+                                >
+                                    <option value={30}>30 Segundos</option>
+                                    <option value={60}>1 Minuto</option>
+                                    <option value={300}>5 Minutos</option>
+                                    <option value={900}>15 Minutos</option>
+                                </select>
+                            </div>
+                        )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+                        <button id="save-settings-btn" className="btn btn-primary" onClick={saveSettings}>
+                            Salvar
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => setIsSettingsOpen(false)}>
+                            Cancelar
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Public links card */}
             <div className="card" style={{ marginBottom: 24, padding: '16px 24px' }}>
@@ -245,7 +291,7 @@ export default function QueueManagement() {
                         className="btn btn-secondary btn-sm"
                         data-testid="link-join"
                     >
-                        📱 Formulário de Entrada (B2C)
+                        📱 Formulário do paciente
                     </a>
                     <a
                         href={`/display/qr?q=${queueId}`}
@@ -276,7 +322,7 @@ export default function QueueManagement() {
                     style={{ marginBottom: 24, background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04))', border: '1px solid rgba(16,185,129,0.3)' }}
                 >
                     <p style={{ color: 'var(--accent-success)', fontWeight: 600, marginBottom: 8 }}>
-                        ✓ Now calling:
+                        ✓ Chamando agora:
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                         {Object.entries(calledUser).map(([key, val]) => (
@@ -286,8 +332,8 @@ export default function QueueManagement() {
                             </div>
                         ))}
                     </div>
-                    <button onClick={() => setCalledUser(null)} style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem' }}>
-                        dismiss
+                    <button onClick={() => setCalledUser(null)} aria-label="Dispensar notificação" style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem' }}>
+                        Dispensar
                     </button>
                 </div>
             )}
@@ -295,21 +341,21 @@ export default function QueueManagement() {
             {/* Queue Table */}
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: 40 }}><span className="spinner" /></div>
+                    <div style={{ textAlign: 'center', padding: 40 }}><span className="spinner" role="status" aria-label="Carregando pacientes" /></div>
                 ) : members.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-                        <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🎉</div>
-                        <p>Queue is empty!</p>
+                        <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>✓</div>
+                        <p>Nenhum paciente na fila</p>
                     </div>
                 ) : (
                     <table id="members-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                <th style={thStyle}>#</th>
-                                <th style={thStyle}>Data</th>
-                                <th style={thStyle}>Joined</th>
-                                <th style={thStyle}>Order</th>
-                                <th style={thStyle}>Remove</th>
+                                <th style={thStyle}>Nº</th>
+                                <th style={thStyle}>Dados</th>
+                                <th style={thStyle}>Horário</th>
+                                <th style={thStyle}>Ordem</th>
+                                <th style={thStyle}>Remover</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -319,16 +365,16 @@ export default function QueueManagement() {
                                     data-testid={`member-row-${idx}`}
                                     style={{
                                         borderBottom: '1px solid var(--border-subtle)',
-                                        background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+                                        background: idx % 2 === 0 ? 'transparent' : 'var(--bg-secondary)',
                                         transition: 'background var(--transition-fast)'
                                     }}
                                 >
                                     {/* Position badge */}
                                     <td style={tdStyle}>
-                                        <span style={{
+                                        <span className="tabular" style={{
                                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                             width: 32, height: 32, borderRadius: '50%',
-                                            background: idx === 0 ? 'linear-gradient(135deg, var(--accent-primary), #4f46e5)' : 'var(--bg-secondary)',
+                                            background: idx === 0 ? 'var(--accent-primary)' : 'var(--bg-secondary)',
                                             fontWeight: 700, fontSize: '0.85rem'
                                         }}>
                                             {member.position + 1}
@@ -346,7 +392,7 @@ export default function QueueManagement() {
                                         </div>
                                     </td>
                                     {/* Timestamp */}
-                                    <td style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                                    <td className="tabular" style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                                         {formatTime(member.joined_at)}
                                     </td>
                                     {/* Reorder */}
@@ -356,7 +402,8 @@ export default function QueueManagement() {
                                                 className="btn btn-secondary btn-sm"
                                                 onClick={() => handleMoveUp(member)}
                                                 disabled={member.position === 0}
-                                                title="Move up"
+                                                title="Mover para cima"
+                                                aria-label="Mover para cima"
                                                 data-testid={`move-up-${idx}`}
                                                 style={{ padding: '6px 10px', opacity: member.position === 0 ? 0.3 : 1 }}
                                             >▲</button>
@@ -364,7 +411,8 @@ export default function QueueManagement() {
                                                 className="btn btn-secondary btn-sm"
                                                 onClick={() => handleMoveDown(member)}
                                                 disabled={member.position >= members.length - 1}
-                                                title="Move down"
+                                                title="Mover para baixo"
+                                                aria-label="Mover para baixo"
                                                 data-testid={`move-down-${idx}`}
                                                 style={{ padding: '6px 10px', opacity: member.position >= members.length - 1 ? 0.3 : 1 }}
                                             >▼</button>
@@ -376,7 +424,8 @@ export default function QueueManagement() {
                                             className="btn btn-danger btn-sm"
                                             onClick={() => handleRemove(member)}
                                             data-testid={`remove-btn-${idx}`}
-                                            title="Remove from queue"
+                                            title="Remover da fila"
+                                            aria-label="Remover da fila"
                                         >✕</button>
                                     </td>
                                 </tr>
@@ -386,54 +435,6 @@ export default function QueueManagement() {
                 )}
             </div>
 
-            {/* SETTINGS MODAL */}
-            {isSettingsOpen && (
-                <div className="qr-overlay" onClick={() => setIsSettingsOpen(false)}>
-                    <div className="qr-modal" onClick={e => e.stopPropagation()} style={{ minWidth: '400px' }}>
-                        <h2 className="heading-md">Queue Settings</h2>
-                        <div className="form-group" style={{ marginTop: '20px', textAlign: 'left' }}>
-                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <input
-                                    id="qr-rotation-toggle"
-                                    type="checkbox"
-                                    checked={editQrEnabled}
-                                    onChange={e => setEditQrEnabled(e.target.checked)}
-                                />
-                                Habilitar QR Code Rotativo (Anti-Fraude)
-                            </label>
-                            {editQrEnabled && (
-                                <div style={{ marginTop: '14px' }}>
-                                    <label className="form-label" htmlFor="edit-qr-interval">Intervalo de Rotação (segundos)</label>
-                                    <select 
-                                        id="edit-qr-interval"
-                                        className="form-select" 
-                                        value={editQrInterval} 
-                                        onChange={e => setEditQrInterval(Number(e.target.value))}
-                                    >
-                                        <option value={30}>30 Segundos</option>
-                                        <option value={60}>1 Minuto</option>
-                                        <option value={300}>5 Minutos</option>
-                                        <option value={900}>15 Minutos</option>
-                                    </select>
-                                </div>
-                            )}
-                        </div>
-                        {settingsSaved && (
-                            <p id="settings-saved" style={{ color: 'var(--accent-success)', fontSize: '0.85rem', marginTop: 12 }}>
-                                ✓ Saved!
-                            </p>
-                        )}
-                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
-                            <button className="btn btn-secondary" onClick={() => setIsSettingsOpen(false)}>
-                                Cancel
-                            </button>
-                            <button id="save-settings-btn" className="btn btn-primary" onClick={saveSettings}>
-                                Save Changes
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

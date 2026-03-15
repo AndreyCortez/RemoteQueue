@@ -13,10 +13,10 @@ export default defineConfig({
     use: {
         baseURL: 'http://localhost:3000',
         headless: isHeadless,
-        viewport: { width: 1280, height: 800 },
+        viewport: isHeadless ? { width: 1280, height: 800 } : null,
         launchOptions: {
             slowMo: 60,
-            ...(isHeadless ? {} : { args: ['--start-maximized'] }),
+            ...(isHeadless ? {} : { args: ['--start-fullscreen'] }),
         },
         video: 'on',
         trace: 'off',

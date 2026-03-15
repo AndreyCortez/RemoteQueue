@@ -103,3 +103,14 @@ echo ""
 echo -e "  ${YELLOW}Para parar:${NC} docker compose down -v"
 echo -e "  ${YELLOW}Ver logs:${NC}  docker compose logs -f backend"
 echo ""
+
+# -------------------------------------------------------------------
+# 6. Open frontend in fullscreen browser
+# -------------------------------------------------------------------
+for browser in google-chrome chromium-browser chromium google-chrome-stable; do
+    if command -v "$browser" &>/dev/null; then
+        log_info "Abrindo $browser em tela cheia em $FRONTEND_URL..."
+        "$browser" --start-fullscreen "$FRONTEND_URL" &
+        break
+    fi
+done

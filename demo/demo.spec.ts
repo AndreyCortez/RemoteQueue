@@ -470,6 +470,7 @@ test('Remote Queue — Full Product Demo', async ({ page, context }) => {
     const mgmtItem = page.locator('.queue-item', { hasText: QUEUE_NAME }).first();
     const mgmtItemVisible = await mgmtItem.isVisible({ timeout: 5_000 }).catch(() => false);
     log('CENA 7', `Queue item visible: ${mgmtItemVisible}`);
+    // Must click the name div specifically — the buttons area has stopPropagation
 
     if (!mgmtItemVisible) {
         log('CENA 7', 'ERROR: Queue item not visible on dashboard');
@@ -478,7 +479,8 @@ test('Remote Queue — Full Product Demo', async ({ page, context }) => {
         throw new Error('Queue item not found on dashboard');
     }
 
-    await mgmtItem.click();
+    await mgmtItem.locator('.queue-item-name').click();
+    await page.waitForURL('**/dashboard/queue/**', { timeout: 10_000 });
     log('CENA 7', `Management page URL: ${page.url()}`);
 
     log('CENA 7', 'Waiting for #members-table ...');

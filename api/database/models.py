@@ -46,6 +46,10 @@ class QueueConfig(Base):
     qr_rotation_enabled = Column(Boolean, nullable=False, default=False)
     qr_rotation_interval = Column(Integer, nullable=False, default=300)
 
+    # Operator-configured baseline for wait time estimation (seconds per patient).
+    # The system also computes a dynamic average from QueueEntry history and blends both.
+    avg_service_time_seconds = Column(Integer, nullable=False, default=300)
+
     tenant = relationship("Tenant", back_populates="queues")
 
 class QueueEntry(Base):

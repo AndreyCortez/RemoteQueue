@@ -86,7 +86,7 @@ def get_queue_info(queue_id: str, db: Session = Depends(get_db)):
     }
 
 @router.post("/join")
-def join_queue(
+async def join_queue(
     request: JoinQueueRequest,
     db: Session = Depends(get_db),
     client=Depends(get_redis_client)
@@ -106,6 +106,11 @@ def join_queue(
             raise HTTPException(status_code=403, detail="Invalid or expired QR access code")
 
     position = manager.join_queue(tenant_id, request.queue_id, request.user_data)
+    queue_size = manager.get_queue_size(tenant_id, request.queue_id)
+    await websocket_manager.broadcast_to_queue(request.queue_id, {
+        "event": "queue_updated",
+        "queue_size": queue_size,
+    })
     return {"status": "success", "position": position, "queue_id": request.queue_id}
 
 @router.post("/call-next")

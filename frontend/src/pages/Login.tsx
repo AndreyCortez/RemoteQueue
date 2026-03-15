@@ -20,9 +20,9 @@ export default function Login() {
             navigate('/dashboard');
         } catch (err: unknown) {
             if (axios.isAxiosError(err)) {
-                setError(err.response?.data?.detail || 'Login failed. Check your credentials.');
+                setError(err.response?.data?.detail || 'Credenciais inválidas. Verifique e tente novamente.');
             } else {
-                setError('An unexpected error occurred.');
+                setError('Erro inesperado. Tente novamente.');
             }
         } finally {
             setLoading(false);
@@ -33,23 +33,23 @@ export default function Login() {
         <div className="page-container">
             <div className="card" style={{ textAlign: 'center' }}>
                 <h1 className="heading-lg">Remote Queue</h1>
-                <p className="subtitle">B2B Management Portal</p>
+                <p className="subtitle">Portal de Gestão</p>
                 {error && <div className="alert alert-error" id="login-error">{error}</div>}
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
                         <label className="form-label" htmlFor="login-email">Email</label>
                         <input id="login-email" className="form-input" type="email"
                             placeholder="operator@company.com" value={email}
-                            onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+                            onChange={e => setEmail(e.target.value)} required autoComplete="email" autoFocus />
                     </div>
                     <div className="form-group">
-                        <label className="form-label" htmlFor="login-password">Password</label>
+                        <label className="form-label" htmlFor="login-password">Senha</label>
                         <input id="login-password" className="form-input" type="password"
                             placeholder="••••••••" value={password}
                             onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
                     </div>
                     <button id="login-submit" className="btn btn-primary btn-full" type="submit" disabled={loading}>
-                        {loading ? <span className="spinner" /> : 'Sign In'}
+                        {loading ? <span className="spinner" role="status" aria-label="Entrando" /> : 'Entrar'}
                     </button>
                 </form>
             </div>

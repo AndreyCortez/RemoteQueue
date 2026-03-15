@@ -73,7 +73,7 @@ export default function QRDisplay() {
 
     if (status === 'error') {
         return (
-            <div style={fullscreenStyle}>
+            <div className="display-dark" style={fullscreenStyle}>
                 <div style={{ textAlign: 'center' }}>
                     <h1 style={{ fontSize: '4rem', marginBottom: 16 }}>⚠️</h1>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '1.2rem' }}>Queue not found.</p>
@@ -84,36 +84,23 @@ export default function QRDisplay() {
 
     if (status === 'loading') {
         return (
-            <div style={fullscreenStyle}>
-                <span className="spinner" style={{ width: 48, height: 48, borderWidth: 4 }} />
+            <div className="display-dark" style={fullscreenStyle}>
+                <span className="spinner" role="status" aria-label="Carregando" style={{ width: 48, height: 48, borderWidth: 4 }} />
             </div>
         );
     }
 
     return (
-        <div style={fullscreenStyle}>
-            {/* Top gradient orb */}
-            <div style={{
-                position: 'absolute', top: -200, left: '50%', transform: 'translateX(-50%)',
-                width: 600, height: 600,
-                background: 'radial-gradient(circle, rgba(99,102,241,0.3) 0%, transparent 70%)',
-                pointerEvents: 'none'
-            }} />
-
-            <div style={{ textAlign: 'center', zIndex: 1, padding: 24 }}>
+        <div className="display-dark" style={fullscreenStyle}>
+            <div style={{ textAlign: 'center', padding: 24 }}>
                 {/* Queue name */}
-                <h1 style={{
-                    fontSize: 'clamp(2rem, 5vw, 4rem)', fontWeight: 800,
-                    background: 'linear-gradient(135deg, #f1f5f9 0%, #6366f1 100%)',
-                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                    marginBottom: 8, letterSpacing: '-0.03em'
-                }}>
+                <h1 className="heading-lg" style={{ fontSize: 'clamp(2rem, 5vw, 4rem)', marginBottom: 8 }}>
                     {queueInfo?.name}
                 </h1>
 
                 {/* Subtitle */}
                 <p style={{ color: 'var(--text-secondary)', fontSize: 'clamp(1rem, 2vw, 1.4rem)', marginBottom: 40 }}>
-                    Escanei o QR Code para entrar na fila
+                    Escaneie o QR Code para entrar na fila
                 </p>
 
                 {/* QR Code */}
@@ -121,7 +108,7 @@ export default function QRDisplay() {
                     <div style={{
                         display: 'inline-block', padding: 20,
                         background: 'white', borderRadius: 24,
-                        boxShadow: '0 0 60px rgba(99,102,241,0.3)',
+                        boxShadow: 'var(--shadow-raised)',
                         marginBottom: 40
                     }}>
                         <QRCodeSVG
@@ -136,21 +123,21 @@ export default function QRDisplay() {
                 {/* Live queue counter */}
                 <div style={{
                     display: 'inline-flex', flexDirection: 'column', alignItems: 'center',
-                    gap: 4, background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 16, padding: '16px 40px'
+                    gap: 4, background: 'var(--bg-card)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-lg)', padding: '16px 40px'
                 }}>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                        Na fila agora
+                        Aguardando agora
                     </span>
-                    <span style={{
+                    <span className="tabular" style={{
                         fontSize: 'clamp(2.5rem, 6vw, 5rem)', fontWeight: 800, lineHeight: 1,
-                        color: queueSize === 0 ? 'var(--accent-success)' : '#f1f5f9'
+                        color: queueSize === 0 ? 'var(--accent-success)' : 'var(--text-primary)'
                     }}>
                         {queueSize ?? '—'}
                     </span>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        {queueSize === 0 ? 'vazio — entre agora!' : queueSize === 1 ? 'pessoa' : 'pessoas'}
+                        {queueSize === 0 ? 'ninguém esperando' : queueSize === 1 ? 'paciente aguardando' : 'pacientes aguardando'}
                     </span>
                 </div>
             </div>
@@ -169,5 +156,5 @@ const fullscreenStyle: React.CSSProperties = {
     display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center',
     position: 'relative', overflow: 'hidden',
-    fontFamily: 'Inter, -apple-system, sans-serif'
+    fontFamily: 'inherit'
 };
