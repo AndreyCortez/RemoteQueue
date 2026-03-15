@@ -19,38 +19,95 @@ Demo   ✅  Script Playwright automatizado com narração visual (demo/)
 
 ---
 
-## Fase 5 — Registro e Autenticação Completa
+## Fase 5 — Estimativa Dinâmica de Espera
 
-> **Bloqueio MVP**: Hoje não existe signup. Usuários são criados via seed manual.
+Dar ao cliente uma previsão de tempo de espera baseada no ritmo real de atendimento, atualizada em tempo real conforme a fila avança.
 
-### 5.1 Registro de Operador B2B
-- [ ] `POST /api/v1/auth/register` — cria Tenant + B2BUser em uma transação
-- [ ] Frontend: página `/register` com campos: nome da empresa, email, senha, confirmar senha
-- [ ] Validação de email único (409 se já existe)
-- [ ] Redirect automático para `/dashboard` após registro
-- [ ] Link "Criar conta" na página de login
-- [ ] Testes unitários + E2E do fluxo completo
+### 5.1 Coleta de Dados de Cadência
 
-### 5.2 Verificação de Email
-- [ ] Campo `email_verified: bool` no modelo `B2BUser` (migration Alembic)
-- [ ] Envio de email de confirmação com token JWT (expiração 24h)
-- [ ] `GET /api/v1/auth/verify-email?token=<jwt>` — marca email como verificado
-- [ ] Integração com serviço de email (SendGrid / AWS SES / Resend)
-- [ ] Reenviar email de verificação
-- [ ] Bloquear acesso ao dashboard até verificação (ou permitir com banner de aviso)
+- [ ] Registrar `called_at` (Unix timestamp) em `QueueEntry` a cada `call-next` bem-sucedido
+- [ ] Calcular intervalo entre chamadas consecutivas para cada fila (cadência por fila, não global)
+- [ ] Persistir rolling average em Redis: `tenant:{id}:queue:{id}:avg_interval` com janela dos últimos 10 atendimentos
+- [ ] Ao iniciar o servidor, recalcular médias existentes a partir do histórico de `QueueEntry`
 
-### 5.3 Recuperação de Senha
-- [ ] `POST /api/v1/auth/forgot-password` — envia email com link de reset
-- [ ] `POST /api/v1/auth/reset-password` — valida token e atualiza senha
-- [ ] Frontend: páginas `/forgot-password` e `/reset-password?token=<jwt>`
-- [ ] Rate limiting no endpoint de forgot-password (max 5/hora por email)
+### 5.2 API de Estimativa
 
-### 5.4 Gestão de Operadores (Multi-Usuário por Tenant)
-- [ ] `GET /api/v1/b2b/tenant/users` — listar operadores do tenant
-- [ ] `POST /api/v1/b2b/tenant/invite` — convidar operador por email
-- [ ] `DELETE /api/v1/b2b/tenant/users/{user_id}` — remover operador
-- [ ] Roles: `admin` (tudo) vs `operator` (só gestão de fila)
-- [ ] Frontend: aba "Equipe" no dashboard
+- [ ] Adicionar campo `estimated_wait_seconds: int | null` ao response de `GET /api/v1/queue/{queue_id}/status`
+  - `null` = dados insuficientes (menos de 3 atendimentos registrados)
+  - Fórmula: `position × avg_interval_seconds`
+- [ ] Incluir `sample_size: int` para o frontend saber o nível de confiança da estimativa
+- [ ] Incluir `estimated_wait_seconds` nos eventos WebSocket de `queue_updated` e `queue_member_called`
+
+### 5.3 Frontend — B2CJoin (Tela do Cliente)
+
+- [ ] Exibir estimativa abaixo do número de posição quando `estimated_wait_seconds !== null`
+  - Formatar de forma humana: "~3 min", "~1h 10min"
+  - Exibir "Calculando..." quando `sample_size < 3`
+- [ ] Atualizar estimativa via WebSocket sem reload de página
+- [ ] Não exibir estimativa quando posição = 0 ("Você é o próximo")
+
+### 5.4 Frontend — StatusDisplay (Tela da TV)
+
+- [ ] Adicionar bloco de estimativa média no painel direito ("Tempo médio de atendimento: ~8 min")
+- [ ] Atualizar via WebSocket junto com o restante dos dados
+
+### 5.5 Edge Cases
+
+- [ ] Fila com 0 chamadas: ocultar estimativa completamente
+- [ ] Outliers (atendimento muito longo): usar mediana em vez de média para evitar distorção
+- [ ] Fila parada por longo período: expirar a estimativa se nenhuma chamada ocorreu nas últimas 2 horas (retornar `null`)
+
+---
+
+## Fase 5B — Portal Administrativo Interno (Superadmin)
+
+Interface interna da Remote Queue para registrar, monitorar e gerenciar todos os negócios clientes (tenants) da plataforma.
+
+### 5B.1 Modelo de Autenticação Superadmin
+
+- [ ] Adicionar coluna `is_superadmin: bool` em `B2BUser` (ou criar modelo `AdminUser` separado)
+- [ ] Novo claim `role: "superadmin"` no JWT emitido para admins
+- [ ] Dependency `require_superadmin` no FastAPI — qualquer rota `/api/v1/admin/*` exige esse claim
+- [ ] Login separado em `POST /api/v1/admin/auth/login`
+- [ ] Script CLI para criar o primeiro superadmin (`scripts/create_admin.py`)
+
+### 5B.2 API de Gestão de Tenants
+
+- [ ] `GET /api/v1/admin/tenants` — listar todos os tenants com métricas básicas:
+  - Total de filas, total de membros ativos, data de criação, último acesso
+- [ ] `GET /api/v1/admin/tenants/{tenant_id}` — detalhes completos:
+  - Filas, configurações QR, histórico de atividade (calls por dia últimos 30 dias)
+- [ ] `POST /api/v1/admin/tenants` — criar novo tenant + usuário operador inicial
+- [ ] `PUT /api/v1/admin/tenants/{tenant_id}` — editar nome, plano, configurações
+- [ ] `POST /api/v1/admin/tenants/{tenant_id}/suspend` — suspender acesso (login bloqueado, filas ativas pausadas)
+- [ ] `DELETE /api/v1/admin/tenants/{tenant_id}` — exclusão com cleanup completo (Redis + Postgres)
+
+### 5B.3 API de Métricas Globais
+
+- [ ] `GET /api/v1/admin/stats` — dashboard de números gerais:
+  - Total tenants ativos / suspensos
+  - Total de chamadas hoje / esta semana / este mês
+  - Tenants mais ativos (top 10 por volume)
+  - Filas com maior fluxo agora (em tempo real)
+
+### 5B.4 Frontend — Portal Admin
+
+- [ ] Rota protegida `/admin/*` com `AdminProtectedRoute` separado do `ProtectedRoute` B2B
+- [ ] `/admin/login` — tela de login exclusiva para superadmins
+- [ ] `/admin` — dashboard com métricas globais (cards de totais, gráfico de atividade)
+- [ ] `/admin/tenants` — tabela paginada de tenants com filtro por nome/status e ações inline (suspender, excluir)
+- [ ] `/admin/tenants/:id` — página de detalhe do tenant:
+  - Dados cadastrais editáveis
+  - Lista de filas ativas com tamanho atual
+  - Gráfico de chamadas por dia (últimos 30 dias)
+  - Botões de suspender / reativar / excluir
+- [ ] Tema visual diferenciado (ex.: sidebar escura, badge "Admin") para deixar claro que é o painel interno
+
+### 5B.5 Segurança
+
+- [ ] Todas as rotas `/admin/*` bloqueadas por RBAC — 403 se JWT não tiver `role: superadmin`
+- [ ] Logs de auditoria para ações destrutivas (suspender, excluir): gravar `admin_user_id`, `action`, `target_tenant_id`, `timestamp` em tabela `AdminAuditLog`
+- [ ] Rate limiting agressivo no `/admin/auth/login` (5 tentativas / 10 min por IP)
 
 ---
 
@@ -69,10 +126,6 @@ Demo   ✅  Script Playwright automatizado com narração visual (demo/)
 - [ ] Frontend: página `/dashboard/settings` com dados da empresa
 - [ ] Upload de logo (S3 ou storage local)
 - [ ] Personalização de cores/branding nas telas públicas
-
-### 6.3 Alteração de Senha
-- [ ] `PUT /api/v1/auth/change-password` — requer senha atual + nova senha
-- [ ] Frontend: seção no perfil do operador
 
 ---
 
@@ -118,19 +171,6 @@ Demo   ✅  Script Playwright automatizado com narração visual (demo/)
 - [ ] Script de backup do PostgreSQL (pg_dump agendado via cron)
 - [ ] Estratégia de restore documentada
 
-### 8.2 Monitoramento
-- [ ] Endpoint `/metrics` (Prometheus-compatible)
-- [ ] Integração Sentry para error tracking (backend + frontend)
-- [ ] Alertas básicos: error rate > threshold, container down, disk > 90%
-- [ ] Dashboard Grafana (opcional, nice-to-have)
-
-### 8.3 CI/CD
-- [x] GitHub Actions: unit tests com coverage gate (90%)
-- [x] GitHub Actions: E2E Playwright contra Docker Compose
-- [ ] Build e push de imagens Docker para registry (GitHub Container Registry / ECR)
-- [ ] Deploy automático para staging em push para `main`
-- [ ] Deploy para produção via tag/release
-
 ### 8.4 Health Checks
 - [x] `GET /` retorna `{"status": "healthy"}`
 - [ ] Health check detalhado: `GET /api/v1/health` — verifica Postgres + Redis connectivity
@@ -165,93 +205,3 @@ Demo   ✅  Script Playwright automatizado com narração visual (demo/)
 - [ ] Confirmação visual de ações destrutivas (modal em vez de `window.confirm`)
 
 ---
-
-## Fase 10 — Features de Produto (Pós-MVP)
-
-> Itens que agregam valor mas não bloqueiam o lançamento.
-
-### 10.1 Analytics e Relatórios
-- [ ] Dashboard de métricas: tempo médio na fila, pico de horário, volume diário
-- [ ] Gráficos baseados em `queue_entries` (Chart.js ou Recharts)
-- [ ] Exportar histórico CSV/PDF
-
-### 10.2 Notificações
-- [ ] Push notification para B2C quando está em 2ª posição
-- [ ] SMS opcional (Twilio) quando cliente é chamado
-- [ ] Webhook: notificar sistemas externos quando membro é chamado (`POST` configurável)
-
-### 10.3 Multi-Fila por Display
-- [ ] `QRDisplay` listando múltiplas filas do tenant no mesmo totem
-- [ ] `StatusDisplay` com tabs ou grid para múltiplas filas
-
-### 10.4 Integrações
-- [ ] API pública documentada com API keys para integração de terceiros
-- [ ] Zapier/Make integration triggers
-- [ ] Embed widget (iframe) para sites dos clientes
-
-### 10.5 App Nativo
-- [ ] Flutter/React Native app B2C para substituir o PWA em `/join`
-- [ ] Push notifications nativas
-- [ ] Histórico de filas que o usuário participou
-
-### 10.6 Internacionalização
-- [ ] i18n no frontend (pt-BR, en, es)
-- [ ] Idioma configurável por tenant
-- [ ] Labels do schema em múltiplos idiomas
-
----
-
-## Priorização para MVP
-
-### 🔴 Bloqueadores (Fase 5-7 parcial) — Sem isso não lança
-
-| # | Item | Fase |
-|---|------|------|
-| 1 | Registro de operador B2B (signup) | 5.1 |
-| 2 | Exclusão de fila | 6.1 |
-| 3 | CORS middleware | 7.1 |
-| 4 | `.env.example` + secrets via env var | 7.3 |
-| 5 | HTTPS/SSL | 7.5 |
-| 6 | Documentação de deploy | 8.1 |
-| 7 | Backup de banco | 8.1 |
-| 8 | Página 404 | 9.1 |
-
-### 🟡 Importantes (lançar logo depois)
-
-| # | Item | Fase |
-|---|------|------|
-| 9 | Recuperação de senha | 5.3 |
-| 10 | Verificação de email | 5.2 |
-| 11 | Rate limiting auth | 7.2 |
-| 12 | Sanitização de input | 7.4 |
-| 13 | Health check detalhado | 8.4 |
-| 14 | Landing page | 9.2 |
-| 15 | Sentry error tracking | 8.2 |
-| 16 | Perfil do tenant | 6.2 |
-| 17 | Páginas legais | 9.3 |
-
-### 🟢 Nice-to-have (roadmap pós-lançamento)
-
-| # | Item | Fase |
-|---|------|------|
-| 18 | Multi-operador por tenant | 5.4 |
-| 19 | Analytics/relatórios | 10.1 |
-| 20 | Notificações push/SMS | 10.2 |
-| 21 | Multi-fila por display | 10.3 |
-| 22 | Webhook | 10.4 |
-| 23 | App nativo | 10.5 |
-| 24 | i18n | 10.6 |
-| 25 | Deploy automático | 8.3 |
-
----
-
-## Changelog
-
-| Data | Mudança |
-|------|---------|
-| 2025-05 | Fases 1-2 completas (multi-tenant, dashboard, WebSocket) |
-| 2025-06 | Fase 3 completa (QR rotativo anti-fraude) |
-| 2025-06 | Fase 4 completa (rich form schema) |
-| 2025-07 | Infra: Alembic migrations, structured logging, CI pipeline |
-| 2026-03 | Demo automatizado (Playwright com narração visual) |
-| 2026-03 | Roadmap reescrito para MVP de produção (Fases 5-10) |

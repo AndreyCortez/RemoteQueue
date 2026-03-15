@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
@@ -24,6 +24,7 @@ export default function QRDisplay() {
     const [qrData, setQrData] = useState<{ url: string; expires_in?: number } | null>(null);
     const [queueSize, setQueueSize] = useState<number | null>(null);
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+    const rotationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const fetchData = useCallback(async () => {
         if (!queueId) { setStatus('error'); return; }
@@ -44,7 +45,8 @@ export default function QRDisplay() {
 
             if (qrRes.data.rotation_enabled && qrRes.data.expires_in) {
                 // Buffer to update 1 sec before it expires
-                setTimeout(fetchData, Math.max((qrRes.data.expires_in - 1) * 1000, 1000));
+                if (rotationTimer.current) clearTimeout(rotationTimer.current);
+                rotationTimer.current = setTimeout(fetchData, Math.max((qrRes.data.expires_in - 1) * 1000, 1000));
             }
         } catch {
             setStatus('error');
@@ -52,9 +54,8 @@ export default function QRDisplay() {
     }, [queueId]);
 
     useEffect(() => {
-        let mounted = true;
-        if (mounted) fetchData();
-        return () => { mounted = false; };
+        fetchData();
+        return () => { if (rotationTimer.current) clearTimeout(rotationTimer.current); };
     }, [queueId, fetchData]);
 
     // WebSocket to update queue size in real time
@@ -73,7 +74,7 @@ export default function QRDisplay() {
 
     if (status === 'error') {
         return (
-            <div className="display-dark" style={fullscreenStyle}>
+            <div className="" style={fullscreenStyle}>
                 <div style={{ textAlign: 'center' }}>
                     <h1 style={{ fontSize: '4rem', marginBottom: 16 }}>⚠️</h1>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '1.2rem' }}>Queue not found.</p>
@@ -84,14 +85,14 @@ export default function QRDisplay() {
 
     if (status === 'loading') {
         return (
-            <div className="display-dark" style={fullscreenStyle}>
+            <div className="" style={fullscreenStyle}>
                 <span className="spinner" role="status" aria-label="Carregando" style={{ width: 48, height: 48, borderWidth: 4 }} />
             </div>
         );
     }
 
     return (
-        <div className="display-dark" style={fullscreenStyle}>
+        <div className="" style={fullscreenStyle}>
             <div style={{ textAlign: 'center', padding: 24 }}>
                 {/* Queue name */}
                 <h1 className="heading-lg" style={{ fontSize: 'clamp(2rem, 5vw, 4rem)', marginBottom: 8 }}>

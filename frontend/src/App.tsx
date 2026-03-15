@@ -17,8 +17,8 @@ function App() {
                         <div className="page-container">
                             <div className="card" style={{ textAlign: 'center' }}>
                                 <h1 className="heading-lg">Remote Queue</h1>
-                                <p className="subtitle">Welcome. Please scan a QR code to join a queue.</p>
-                                <a href="/login" className="btn btn-secondary">B2B Login →</a>
+                                <p className="subtitle">Escaneie o QR Code da clínica para entrar na fila.</p>
+                                <a href="/login" className="btn btn-secondary">Acesso operadores →</a>
                             </div>
                         </div>
                     } />

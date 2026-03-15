@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -34,6 +34,12 @@ export default function QueueManagement() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [editQrEnabled, setEditQrEnabled] = useState(false);
     const [editQrInterval, setEditQrInterval] = useState(300);
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Action guards
+    const [isCalling, setIsCalling] = useState(false);
+    const [clearConfirm, setClearConfirm] = useState(false);
+    const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const headers = getAuthHeaders();
 
@@ -81,10 +87,12 @@ export default function QueueManagement() {
     }, [queueId, fetchMembers]);
 
     const handleCallNext = async () => {
+        if (isCalling) return;
+        setIsCalling(true);
         try {
             const res = await axios.post(`${API_BASE}/b2b/queue/${queueId}/call-next`, {}, { headers });
             setCalledUser(res.data.user_data);
-            showToast('Próxima pessoa chamada! ✓');
+            showToast('Próximo paciente chamado ✓');
             fetchMembers();
         } catch (err: unknown) {
             if (axios.isAxiosError(err)) {
@@ -94,6 +102,8 @@ export default function QueueManagement() {
             } else {
                 showToast('Erro inesperado', 'error');
             }
+        } finally {
+            setIsCalling(false);
         }
     };
 
@@ -137,7 +147,14 @@ export default function QueueManagement() {
     };
 
     const handleClearAll = async () => {
-        if (!confirm('Remover todos da fila? Esta ação não pode ser desfeita.')) return;
+        if (!clearConfirm) {
+            setClearConfirm(true);
+            if (clearTimer.current) clearTimeout(clearTimer.current);
+            clearTimer.current = setTimeout(() => setClearConfirm(false), 4000);
+            return;
+        }
+        setClearConfirm(false);
+        if (clearTimer.current) clearTimeout(clearTimer.current);
         try {
             const res = await axios.post(`${API_BASE}/b2b/queue/${queueId}/clear`, {}, { headers });
             showToast(`${res.data.removed_count} removido(s) da fila`);
@@ -155,6 +172,8 @@ export default function QueueManagement() {
     };
 
     const saveSettings = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
         try {
             await axios.put(`${API_BASE}/b2b/queues/${queueId}`, {
                 qr_rotation_enabled: editQrEnabled,
@@ -165,11 +184,16 @@ export default function QueueManagement() {
             setIsSettingsOpen(false);
         } catch {
             showToast('Erro ao salvar configurações', 'error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const formatTime = (score: number) => {
-        return new Date(score * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        if (!score || !isFinite(score)) return '—';
+        const d = new Date(score * 1000);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     };
 
     return (
@@ -177,6 +201,7 @@ export default function QueueManagement() {
             {/* Toast notification */}
             {toast && (
                 <div
+                    role="alert"
                     className={`alert alert-${toast.type === 'error' ? 'error' : 'success'}`}
                     id="queue-toast"
                     style={{ position: 'fixed', top: 24, right: 24, zIndex: 200, maxWidth: 340, animation: 'slide-up 200ms ease' }}
@@ -190,16 +215,16 @@ export default function QueueManagement() {
                 <div>
                     <button className="btn btn-secondary btn-sm" onClick={() => navigate('/dashboard')}
                         style={{ marginBottom: 8 }}>← Voltar</button>
-                    <h1 className="heading-lg" style={{ marginBottom: 0 }}>
+                    <h1 className="heading-lg" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60vw' }}>
                         {queue?.name || '...'}
                         {queue?.qr_rotation_enabled && (
-                            <span style={{ marginLeft: 12, fontSize: '0.9rem', color: 'var(--accent-primary)', padding: '2px 8px', background: 'var(--accent-glow)', borderRadius: 12 }}>
+                            <span style={{ marginLeft: 12, fontSize: '0.9rem', color: 'var(--accent-primary)', padding: '2px 10px', background: 'var(--accent-glow)', borderRadius: 'var(--radius-lg)' }}>
                                 🔄 QR com código temporário
                             </span>
                         )}
                     </h1>
-                    <p className="subtitle" style={{ marginBottom: 0 }}>
-                        {members.length} {members.length === 1 ? 'pessoa' : 'pessoas'} na fila
+                    <p className="subtitle" style={{ marginBottom: 0 }} aria-live="polite">
+                        {members.length} {members.length === 1 ? 'paciente' : 'pacientes'} na fila
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -214,24 +239,25 @@ export default function QueueManagement() {
                         id="call-next-btn"
                         className="btn btn-primary"
                         onClick={handleCallNext}
-                        disabled={members.length === 0}
+                        disabled={members.length === 0 || isCalling}
                     >
-                        Chamar Próximo ▶
+                        {isCalling ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Chamar Próximo ▶'}
                     </button>
                     <button
                         id="clear-all-btn"
                         className="btn btn-danger"
                         onClick={handleClearAll}
                         disabled={members.length === 0}
+                        style={clearConfirm ? { background: 'rgba(220,38,38,0.1)', borderColor: 'var(--accent-error)' } : undefined}
                     >
-                        Limpar Fila ✕
+                        {clearConfirm ? 'Confirmar? ✕' : 'Limpar Fila ✕'}
                     </button>
                 </div>
             </div>
 
             {/* SETTINGS PANEL — progressive disclosure, matches Dashboard pattern */}
             {isSettingsOpen && (
-                <div className="card" style={{ maxWidth: 'none', marginBottom: 24 }}>
+                <div className="card" style={{ maxWidth: 'none', marginBottom: 24, animation: 'slide-up 200ms ease' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                         <h2 className="heading-md" style={{ marginBottom: 0 }}>Configurações da Fila</h2>
                         <button
@@ -268,8 +294,8 @@ export default function QueueManagement() {
                         )}
                     </div>
                     <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                        <button id="save-settings-btn" className="btn btn-primary" onClick={saveSettings}>
-                            Salvar
+                        <button id="save-settings-btn" className="btn btn-primary" onClick={saveSettings} disabled={isSaving}>
+                            {isSaving ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Salvar'}
                         </button>
                         <button className="btn btn-secondary" onClick={() => setIsSettingsOpen(false)}>
                             Cancelar
@@ -317,22 +343,43 @@ export default function QueueManagement() {
             {/* Called user banner */}
             {calledUser && (
                 <div
+                    role="alert"
                     id="called-user-banner"
                     className="card"
-                    style={{ marginBottom: 24, background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04))', border: '1px solid rgba(16,185,129,0.3)' }}
+                    style={{ marginBottom: 24, background: 'var(--accent-success-glow)', border: '1px solid rgba(5,150,105,0.22)', animation: 'slide-up 200ms ease' }}
                 >
                     <p style={{ color: 'var(--accent-success)', fontWeight: 600, marginBottom: 8 }}>
                         ✓ Chamando agora:
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                        {Object.entries(calledUser).map(([key, val]) => (
-                            <div key={key} style={{ background: 'rgba(16,185,129,0.1)', borderRadius: 8, padding: '6px 14px' }}>
-                                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>{key}: </span>
-                                <span style={{ fontWeight: 600 }}>{String(val)}</span>
-                            </div>
-                        ))}
+                        {Object.entries(calledUser).map(([key, val]) => {
+                            const display = String(val ?? '') || '—';
+                            return (
+                                <div
+                                    key={key}
+                                    title={`${key}: ${display}`}
+                                    style={{
+                                        background: 'var(--accent-success-glow)', border: '1px solid rgba(5,150,105,0.15)',
+                                        borderRadius: 'var(--radius-sm)', padding: '6px 14px',
+                                        maxWidth: 220, overflow: 'hidden'
+                                    }}
+                                >
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>{key}: </span>
+                                    <span style={{
+                                        fontWeight: 600, display: 'inline-block',
+                                        maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                        verticalAlign: 'bottom'
+                                    }}>{display}</span>
+                                </div>
+                            );
+                        })}
                     </div>
-                    <button onClick={() => setCalledUser(null)} aria-label="Dispensar notificação" style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem' }}>
+                    <button
+                        onClick={() => setCalledUser(null)}
+                        aria-label="Dispensar notificação"
+                        className="btn btn-ghost btn-sm"
+                        style={{ marginTop: 8, fontSize: '0.8rem' }}
+                    >
                         Dispensar
                     </button>
                 </div>
@@ -348,7 +395,8 @@ export default function QueueManagement() {
                         <p>Nenhum paciente na fila</p>
                     </div>
                 ) : (
-                    <table id="members-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <div className="members-table-wrap">
+                        <table id="members-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                 <th style={thStyle}>Nº</th>
@@ -375,6 +423,7 @@ export default function QueueManagement() {
                                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                             width: 32, height: 32, borderRadius: '50%',
                                             background: idx === 0 ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+                                            color: idx === 0 ? 'white' : 'var(--text-primary)',
                                             fontWeight: 700, fontSize: '0.85rem'
                                         }}>
                                             {member.position + 1}
@@ -383,12 +432,26 @@ export default function QueueManagement() {
                                     {/* Form data fields */}
                                     <td style={tdStyle}>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                            {Object.entries(member.user_data).map(([key, val]) => (
-                                                <span key={key} style={{ background: 'var(--bg-secondary)', borderRadius: 6, padding: '4px 10px', fontSize: '0.82rem' }}>
-                                                    <span style={{ color: 'var(--text-muted)' }}>{key}:</span>{' '}
-                                                    <span style={{ fontWeight: 600 }}>{String(val)}</span>
-                                                </span>
-                                            ))}
+                                            {Object.keys(member.user_data).length === 0 ? (
+                                                <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>—</span>
+                                            ) : Object.entries(member.user_data).map(([key, val]) => {
+                                                const display = String(val ?? '');
+                                                return (
+                                                    <span
+                                                        key={key}
+                                                        title={`${key}: ${display}`}
+                                                        style={{
+                                                            background: 'var(--bg-secondary)', borderRadius: 6,
+                                                            padding: '4px 10px', fontSize: '0.82rem',
+                                                            maxWidth: 200, overflow: 'hidden',
+                                                            textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                                        }}
+                                                    >
+                                                        <span style={{ color: 'var(--text-muted)' }}>{key}:</span>{' '}
+                                                        <span style={{ fontWeight: 600 }}>{display || '—'}</span>
+                                                    </span>
+                                                );
+                                            })}
                                         </div>
                                     </td>
                                     {/* Timestamp */}
@@ -405,7 +468,7 @@ export default function QueueManagement() {
                                                 title="Mover para cima"
                                                 aria-label="Mover para cima"
                                                 data-testid={`move-up-${idx}`}
-                                                style={{ padding: '6px 10px', opacity: member.position === 0 ? 0.3 : 1 }}
+                                                style={{ opacity: member.position === 0 ? 0.3 : 1 }}
                                             >▲</button>
                                             <button
                                                 className="btn btn-secondary btn-sm"
@@ -414,7 +477,7 @@ export default function QueueManagement() {
                                                 title="Mover para baixo"
                                                 aria-label="Mover para baixo"
                                                 data-testid={`move-down-${idx}`}
-                                                style={{ padding: '6px 10px', opacity: member.position >= members.length - 1 ? 0.3 : 1 }}
+                                                style={{ opacity: member.position >= members.length - 1 ? 0.3 : 1 }}
                                             >▼</button>
                                         </div>
                                     </td>
@@ -431,7 +494,8 @@ export default function QueueManagement() {
                                 </tr>
                             ))}
                         </tbody>
-                    </table>
+                        </table>
+                    </div>
                 )}
             </div>
 

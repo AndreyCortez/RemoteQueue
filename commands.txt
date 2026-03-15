@@ -1,0 +1,164 @@
+Critical Issues
+[C1] Queue table overflows on mobile
+
+Location: QueueManagement.tsx:305 — <table> inside .card
+Category: Responsive
+Description: The members table has 5 columns with no overflow-x: auto wrapper. On screens narrower than ~600px it will either overflow the viewport or compress columns into unreadable widths.
+Impact: Clinic staff on tablets in portrait mode or phones cannot manage the queue. Core operator functionality broken.
+Recommendation: Wrap the table in <div style={{ overflowX: 'auto' }}>. Consider a card-per-row layout on mobile via container query.
+Command: /adapt QueueManagement table
+[C2] Position badge — foreground color undefined when background is blue
+
+Location: QueueManagement.tsx:328-335
+Category: Accessibility / Theming
+Description: When idx === 0, the badge gets background: var(--accent-primary) (#0369a1) but no explicit color. The inherited text color is var(--text-primary) — now oklch(14% 0.022 257), a very dark near-black. Dark text on a medium-dark blue fails WCAG AA (contrast ratio ~1.8:1).
+WCAG: 1.4.3 Contrast (Minimum) — Level AA
+Impact: The queue position number for the first patient (the one about to be called) is illegible.
+Recommendation: Add color: idx === 0 ? 'white' : 'var(--text-primary)' to the badge style.
+Command: /polish QueueManagement
+[C3] Toast notifications missing role="alert"
+
+Location: QueueManagement.tsx:181-189
+Category: Accessibility
+Description: The fixed-position toast (id="queue-toast") is injected dynamically but has no role="alert" or aria-live="assertive". Screen readers will not announce when a patient is called, when a member is removed, or when errors occur.
+WCAG: 4.1.3 Status Messages — Level AA
+Impact: An operator using a screen reader gets no feedback for the primary actions: call next, remove member, clear queue. Every queue operation is silent.
+Recommendation: Add role="alert" to the toast <div>. For non-urgent messages use role="status" (polite).
+Command: /harden QueueManagement
+[C4] Clickable <li> items are keyboard-inaccessible
+
+Location: Dashboard.tsx:298-321
+Category: Accessibility
+Description: Each queue item is a <li> with onClick={() => navigate(...)} and cursor: 'pointer'. It has no role="button", no tabIndex={0}, and no keyboard handler (onKeyDown for Enter/Space). Keyboard-only users cannot navigate to queue management.
+WCAG: 2.1.1 Keyboard — Level A (blocking)
+Impact: Any operator who uses keyboard navigation (common with accessibility needs, or simply power users) cannot access their queues.
+Recommendation: Change <li> to <li role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') navigate(...) }}> or convert to <button> styled as a list item.
+Command: /harden Dashboard
+High-Severity Issues
+[H1] No <main> landmark on any page
+
+Location: All pages — Dashboard.tsx, QueueManagement.tsx, B2CJoin.tsx, Login.tsx, QRDisplay.tsx, StatusDisplay.tsx
+Category: Accessibility
+Description: Every page uses <div className="dashboard-container"> or <div className="page-container"> as the root wrapper. None have role="main" or a <main> element. Screen reader users cannot use "jump to main content" landmark navigation.
+WCAG: 1.3.6 Identify Purpose — Level AAA (but landmark navigation is a core AT expectation)
+Recommendation: Replace outermost <div className="dashboard-container"> / <div className="page-container"> with <main className="...">.
+Command: /harden all pages
+[H2] calledUser banner — no live region announcement
+
+Location: QueueManagement.tsx:272-293
+Category: Accessibility
+Description: When the operator calls the next patient, a green banner appears with the patient's data. This is the most critical event on the page, but it has no aria-live="assertive" or role="alert". A screen reader user operating the queue cannot hear who was called.
+WCAG: 4.1.3 Status Messages — Level AA
+Recommendation: Add role="alert" to the called-user banner <div>.
+Command: /harden QueueManagement
+[H3] StatusDisplay 2-column grid — no mobile breakpoint
+
+Location: StatusDisplay.tsx:129 — gridTemplateColumns: '1fr 1fr'
+Category: Responsive
+Description: The "Called user" + "Stats" two-column grid has a hard-coded 1fr 1fr with no responsive fallback. On screens narrower than ~700px (portrait tablets, phones), each column is ~300px with large text that overflows.
+Impact: The status display is designed for TVs, but clinic staff may open it on a tablet in portrait mode during setup. It will be broken.
+Recommendation: Use a container query or media query to collapse to single column below 640px.
+Command: /adapt StatusDisplay
+[H4] Reorder button touch targets potentially undersized
+
+Location: QueueManagement.tsx:355-373
+Category: Responsive / Accessibility
+Description: The ▲/▼ reorder buttons have inline style={{ padding: '6px 10px' }} that overrides the btn-sm class's min-height: 44px. With font-size: 0.8rem and padding of 6px top+bottom = ~25px total height — well below the WCAG 44px touch target minimum.
+WCAG: 2.5.5 Target Size — Level AAA (but 44px is the de facto standard)
+Impact: On touch devices, staff will frequently mis-tap reorder buttons.
+Recommendation: Remove the inline padding override. Let btn-sm's min-height: 44px do its job.
+Command: /polish QueueManagement
+[H5] Called-user banner uses hard-coded gradient and rgba colors
+
+Location: QueueManagement.tsx:276-277, 283
+Category: Theming
+Description: The banner background uses linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04)) and chip backgrounds use rgba(16,185,129,0.1) — both hard-coded. Not using var(--accent-success). Will not adapt if the success color token changes.
+Recommendation: Replace with background: rgba(from var(--accent-success) r g b / 0.08) or use var(--accent-glow) with a success variant. Remove the gradient entirely — flat rgba is cleaner and less AI-slop.
+Command: /normalize QueueManagement
+[H6] App.tsx root route is in English
+
+Location: App.tsx:17-24
+Category: Theming / Consistency
+Description: The root / route renders "Welcome. Please scan a QR code to join a queue." — English copy in a Portuguese-language application. This is the page that loads if someone navigates to the bare domain.
+Recommendation: Translate to PT-BR or redirect to /join if that's the intended entry point for patients.
+Command: /clarify App
+Medium-Severity Issues
+[M1] QRDisplay — recursive setTimeout not cleaned up on unmount
+
+Location: QRDisplay.tsx:47
+Category: Performance
+Description: fetchData schedules itself via setTimeout(fetchData, ...) for QR rotation. When the component unmounts (user navigates away), the timeout fires and calls setStatus, setQrData etc. on a dead component. The mounted = false guard in the outer useEffect only prevents the initial call, not the recursive chain.
+Impact: React warning ("Can't perform a React state update on an unmounted component"), potential memory leak on long-running kiosk sessions that navigate.
+Recommendation: Use a useRef to store the timeout ID and clearTimeout in the cleanup. Better: use AbortController pattern.
+Command: /harden QRDisplay
+[M2] JSON.parse without try/catch in StatusDisplay WebSocket
+
+Location: StatusDisplay.tsx:55
+Category: Performance / Robustness
+Description: const msg = JSON.parse(event.data) — if the server sends a malformed message or a non-JSON ping frame, this throws an uncaught exception that crashes the WebSocket message handler (and potentially the component).
+Impact: StatusDisplay TV page silently stops updating after a single bad WebSocket frame.
+Command: /harden StatusDisplay
+[M3] Error alerts not linked to inputs via aria-describedby
+
+Location: Login.tsx:37, Dashboard.tsx:173, B2CJoin.tsx:183
+Category: Accessibility
+Description: Form-level error messages (<div className="alert alert-error">) are not connected to their associated inputs via aria-describedby. When a screen reader user focuses the email field after a failed login, it doesn't announce the error.
+WCAG: 1.3.1 Info and Relationships — Level A
+Command: /harden Login
+[M4] window.confirm() for destructive "Limpar Fila" action
+
+Location: QueueManagement.tsx:141
+Category: Accessibility / Anti-Pattern
+Description: if (!confirm('Remover todos da fila?...')) uses a browser native blocking dialog. This cannot be styled, may be blocked by browser settings, and provides poor UX on touch devices. Additionally it blocks the JS thread.
+Recommendation: Replace with inline confirmation — either a two-step button ("Limpar Fila" → confirm state) or a simple inline warning before the action completes.
+Command: /harden QueueManagement
+[M5] B2CJoin "called" state has no live announcement
+
+Location: B2CJoin.tsx — the early-return called state
+Category: Accessibility
+Description: When the patient's status transitions to called, a fullscreen green page renders. But there's no role="alert" or aria-live announcement. A visually impaired patient with a screen reader hears nothing.
+WCAG: 4.1.3 Status Messages — Level AA
+Recommendation: Add role="alert" to the outermost div of the called state.
+Command: /harden B2CJoin
+[M6] No document title updates per page
+
+Location: All pages
+Category: Accessibility / UX
+Description: The browser tab always reads the default title from index.html. Navigating from Dashboard to QueueManagement doesn't update <title>. Screen reader users who switch browser tabs hear no context. Also poor UX for operators with many tabs open.
+WCAG: 2.4.2 Page Titled — Level A
+Recommendation: Use document.title = '...' in a useEffect on each page, or use react-helmet/react-helmet-async.
+Command: /harden all pages
+[M7] Queue member count in QueueManagement header is not a live region
+
+Location: QueueManagement.tsx:204-206
+Category: Accessibility
+Description: {members.length} pessoas na fila updates via WebSocket in real-time but has no aria-live wrapper. Screen reader users don't hear queue size changes.
+Recommendation: Wrap in <span aria-live="polite">.
+Command: /harden QueueManagement
+Low-Severity Issues
+[L1] QRCodeSVG has no accessible description
+
+Location: QRDisplay.tsx:114-119
+Category: Accessibility
+Description: <QRCodeSVG id="qr-display-img" value={qrData.url} ...> renders an SVG QR code with no aria-label or title. Screen readers will announce nothing useful.
+Recommendation: Wrap with <figure aria-label={QR Code para entrar na fila ${queueInfo?.name}}>.
+Command: /harden QRDisplay
+[L2] getAuthHeaders() creates a new object on every render
+
+Location: Dashboard.tsx:43, QueueManagement.tsx:39
+Category: Performance
+Description: const headers = getAuthHeaders() at the component root runs on every render, creating a new object reference. If headers were ever used as a useEffect dependency, it would cause infinite loops. Low risk in current usage but a latent bug.
+Recommendation: Memoize with useMemo(() => getAuthHeaders(), [token]) or move inside the functions that use it.
+Command: /optimize Dashboard QueueManagement
+[L3] useCallback fetchQueue/fetchMembers have stale headers closure
+
+Location: QueueManagement.tsx:46-67
+Category: Performance
+Description: fetchQueue and fetchMembers are useCallback with [queueId] deps, but they close over headers which is computed outside. If headers changes (e.g., token refresh), the callbacks use the stale token. In practice this doesn't happen since logout/login cause full re-renders, but it's technically incorrect.
+Command: /optimize QueueManagement
+[L4] Emoji icons in public links card
+
+Location: QueueManagement.tsx:248, 254, 261
+Category: Theming / Cross-Platform
+Description: 📱 🖥️ 📺 render differently across Windows, macOS, iOS, Android. On some systems 🖥️ shows as a toaster. For an operator-facing B2B tool this is minor but worth noting.
+Recommendation: Replace with SVG icons or CSS icon font for consistent rendering.

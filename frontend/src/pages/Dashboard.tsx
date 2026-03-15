@@ -33,15 +33,19 @@ export default function Dashboard() {
     // Queue list state
     const [queues, setQueues] = useState<QueueConfig[]>([]);
     const [loadingQueues, setLoadingQueues] = useState(true);
+    const [loadError, setLoadError] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const headers = getAuthHeaders();
 
     const fetchQueues = async () => {
+        setLoadError(false);
         try {
             const res = await axios.get(`${API_BASE}/b2b/queues`, { headers });
             setQueues(res.data);
         } catch (err: unknown) {
             if (axios.isAxiosError(err) && err.response?.status === 401) { logout(); navigate('/login'); }
+            else setLoadError(true);
         } finally {
             setLoadingQueues(false);
         }
@@ -65,12 +69,14 @@ export default function Dashboard() {
 
     const handleCreateQueue = async (e: FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
         setCreateError(null);
         const form_schema: Record<string, string> = {};
         for (const field of schemaFields) {
             if (!field.name.trim()) { setCreateError('Todos os campos precisam ter um nome.'); return; }
             form_schema[field.name.trim()] = field.type;
         }
+        setIsSubmitting(true);
         try {
             await axios.post(`${API_BASE}/b2b/queues`, {
                 name: queueName,
@@ -91,6 +97,8 @@ export default function Dashboard() {
             } else {
                 setCreateError('Erro inesperado. Tente novamente.');
             }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -152,6 +160,7 @@ export default function Dashboard() {
                                 onChange={e => setQueueName(e.target.value)}
                                 required
                                 autoFocus
+                                maxLength={80}
                                 style={{ maxWidth: 400 }}
                             />
                         </div>
@@ -166,6 +175,7 @@ export default function Dashboard() {
                                     value={field.name}
                                     onChange={e => updateSchemaField(index, 'name', e.target.value)}
                                     data-testid={`schema-field-name-${index}`}
+                                    maxLength={50}
                                 />
                                 <select
                                     className="form-select"
@@ -230,8 +240,9 @@ export default function Dashboard() {
                                 id="create-queue-submit"
                                 className="btn btn-primary"
                                 type="submit"
+                                disabled={isSubmitting}
                             >
-                                Criar Fila
+                                {isSubmitting ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Criar Fila'}
                             </button>
                             <button
                                 type="button"
@@ -249,6 +260,11 @@ export default function Dashboard() {
             {loadingQueues ? (
                 <div style={{ textAlign: 'center', padding: '40px' }}>
                     <span className="spinner" role="status" aria-label="Carregando filas" />
+                </div>
+            ) : loadError ? (
+                <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-muted)' }}>
+                    <p style={{ marginBottom: 16 }}>Erro ao carregar filas. Verifique sua conexão.</p>
+                    <button className="btn btn-secondary" onClick={fetchQueues}>Tentar novamente</button>
                 </div>
             ) : queues.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-muted)' }}>

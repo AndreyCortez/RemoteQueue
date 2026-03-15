@@ -48,6 +48,7 @@ export default function B2CJoin() {
     const [position, setPosition] = useState<number | null>(null);
     const [status, setStatus] = useState<'loading' | 'form' | 'queued' | 'called' | 'error'>('loading');
     const [errorMsg, setErrorMsg] = useState<string>('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
@@ -78,7 +79,8 @@ export default function B2CJoin() {
 
     const handleJoin = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!queueId) return;
+        if (!queueId || isSubmitting) return;
+        setIsSubmitting(true);
 
         const user_data: Record<string, unknown> = {};
         Object.entries(queueInfo!.form_schema).forEach(([key, def]) => {
@@ -106,17 +108,19 @@ export default function B2CJoin() {
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
             const ws = new WebSocket(`${protocol}://${location.host}/api/v1/queue/${queueId}/ws`);
             ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                if (msg.event === 'queue_advanced' || msg.event === 'queue_member_called') {
-                    setPosition(prev => {
-                        if (prev === null) return null;
-                        if (prev === 0) {
-                            setStatus('called');
-                            return null;
-                        }
-                        return prev - 1;
-                    });
-                }
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.event === 'queue_advanced' || msg.event === 'queue_member_called') {
+                        setPosition(prev => {
+                            if (prev === null) return null;
+                            if (prev === 0) {
+                                setStatus('called');
+                                return null;
+                            }
+                            return prev - 1;
+                        });
+                    }
+                } catch { /* ignore malformed messages */ }
             };
             wsRef.current = ws;
         } catch (err: unknown) {
@@ -130,6 +134,8 @@ export default function B2CJoin() {
             } else {
                 setErrorMsg('Erro inesperado. Tente novamente.');
             }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -216,8 +222,8 @@ export default function B2CJoin() {
                     {errorMsg && <div className="alert alert-error">{errorMsg}</div>}
                     <form onSubmit={handleJoin}>
                         {Object.entries(queueInfo.form_schema).map(([key, def]) => renderField(key, def))}
-                        <button id="join-submit" className="btn btn-primary btn-full" type="submit" style={{ marginTop: 8 }}>
-                            Entrar na Fila
+                        <button id="join-submit" className="btn btn-primary btn-full" type="submit" style={{ marginTop: 8 }} disabled={isSubmitting}>
+                            {isSubmitting ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Entrar na Fila'}
                         </button>
                     </form>
                 </div>

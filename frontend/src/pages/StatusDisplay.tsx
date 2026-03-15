@@ -52,7 +52,9 @@ export default function StatusDisplay() {
         const ws = new WebSocket(`${protocol}://${location.host}/api/v1/queue/${queueId}/ws`);
 
         ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let msg: any;
+            try { msg = JSON.parse(event.data); } catch { return; }
 
             if (msg.event === 'queue_member_called' && msg.called) {
                 const entry: CalledEntry = { user_data: msg.called, called_at: Date.now() };
@@ -78,7 +80,7 @@ export default function StatusDisplay() {
 
     if (loadError) {
         return (
-            <div className="display-dark" style={tvStyle}>
+            <div className="" style={tvStyle}>
                 <div style={{ textAlign: 'center' }}>
                     <h1 style={{ fontSize: '5rem' }}>⚠️</h1>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '1.5rem' }}>Fila não encontrada</p>
@@ -89,7 +91,7 @@ export default function StatusDisplay() {
 
     if (!status) {
         return (
-            <div className="display-dark" style={tvStyle}>
+            <div className="" style={tvStyle}>
                 <span
                     className="spinner"
                     role="status"
@@ -103,11 +105,12 @@ export default function StatusDisplay() {
     const latestCalled = calledHistory[0];
 
     return (
-        <div className="display-dark" style={tvStyle}>
-            <div style={{ width: '100%', maxWidth: 1200, padding: '40px 60px' }}>
+        <div className="" style={tvStyle}>
+            <div className="status-layout">
                 {/* Header */}
                 <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    flexWrap: 'wrap', gap: '12px 24px',
                     marginBottom: 60, paddingBottom: 32,
                     borderBottom: '1px solid var(--border-subtle)'
                 }}>
@@ -126,7 +129,7 @@ export default function StatusDisplay() {
                     </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
+                <div className="status-grid">
                     {/* LEFT: Called user */}
                     <div style={{
                         background: flash ? 'rgba(16,185,129,0.07)' : 'var(--bg-card)',
