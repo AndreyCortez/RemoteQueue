@@ -45,6 +45,7 @@ def _persist_entry(db: Session, queue_id: str, tenant_id: str, user_data: dict, 
         tenant_id=tenant_id,
         user_data=user_data,
         status=status,
+        called_at=func.now() if status == "called" else None,
         resolved_at=func.now() if status != "waiting" else None
     )
     db.add(entry)
@@ -87,9 +88,11 @@ async def remove_queue_member(
 
     _persist_entry(db, queue_id, tenant_id, request.user_data, "removed")
     queue_size = mgr.get_queue_size(tenant_id, queue_id)
+    wait_info = mgr.estimate_wait(tenant_id, queue_id, queue_size)
     await websocket_manager.broadcast_to_queue(queue_id, {
         "event": "queue_updated",
         "queue_size": queue_size,
+        **wait_info,
     })
     return {"status": "member_removed"}
 
@@ -149,12 +152,15 @@ async def call_next_member(
         raise HTTPException(status_code=404, detail="queue_is_empty")
 
     _persist_entry(db, queue_id, tenant_id, user_data, "called")
+    mgr.record_call_interval(tenant_id, queue_id)
     queue_size = mgr.get_queue_size(tenant_id, queue_id)
+    wait_info = mgr.estimate_wait(tenant_id, queue_id, queue_size)
 
     await websocket_manager.broadcast_to_queue(queue_id, {
         "event": "queue_member_called",
         "called": user_data,
         "queue_size": queue_size,
+        **wait_info,
     })
 
     return {"status": "user_called", "user_data": user_data}

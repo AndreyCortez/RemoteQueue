@@ -24,6 +24,7 @@ async function seedAndLogin(page: Page): Promise<{ queueId: string; token: strin
 
     // Create queue with QR rotation enabled
     const queueName = `Rotation Queue ${Date.now()}`;
+    await page.click('[data-testid="new-queue-btn"]');
     await page.fill('#queue-name', queueName);
     await page.fill('[data-testid="schema-field-name-0"]', 'nome');
     await page.click('#create-queue-submit');
@@ -75,7 +76,8 @@ test.describe('QR Code Rotation — Fase 3', () => {
         const token: string = (await loginResp.json()).access_token;
 
         const queueName = `Static QR Queue ${Date.now()}`;
-        await page.fill('#queue-name', queueName);
+        await page.click('[data-testid="new-queue-btn"]');
+    await page.fill('#queue-name', queueName);
         await page.fill('[data-testid="schema-field-name-0"]', 'nome');
         await page.click('#create-queue-submit');
         await expect(page.locator('#create-success')).toBeVisible();
@@ -157,7 +159,8 @@ test.describe('QR Code Rotation — Fase 3', () => {
         const token: string = (await loginResp.json()).access_token;
 
         const queueName = `Settings Toggle Queue ${Date.now()}`;
-        await page.fill('#queue-name', queueName);
+        await page.click('[data-testid="new-queue-btn"]');
+    await page.fill('#queue-name', queueName);
         await page.fill('[data-testid="schema-field-name-0"]', 'nome');
         await page.click('#create-queue-submit');
         await expect(page.locator('#create-success')).toBeVisible();

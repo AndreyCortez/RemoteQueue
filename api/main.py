@@ -1,7 +1,8 @@
+import os
 from fastapi import FastAPI, Depends
 
 from api.dependencies.security import get_current_tenant_id
-from api.routers import queue, tenant_setup, auth, test_seed, queue_management
+from api.routers import queue, tenant_setup, auth, test_seed, queue_management, admin
 from api.logging_config import configure_logging, RequestLoggingMiddleware
 
 configure_logging()
@@ -17,8 +18,10 @@ app.add_middleware(RequestLoggingMiddleware)
 app.include_router(auth.router)
 app.include_router(queue.router)
 app.include_router(tenant_setup.router)
-app.include_router(test_seed.router)
+if os.environ.get("ENVIRONMENT") != "production":
+    app.include_router(test_seed.router)
 app.include_router(queue_management.router)
+app.include_router(admin.router)
 
 @app.get("/")
 def health_check():

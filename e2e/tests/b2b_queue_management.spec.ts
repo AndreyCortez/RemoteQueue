@@ -19,7 +19,8 @@ async function loginAndCreateQueue(page: Page, queueNamePrefix: string): Promise
     await page.click('#login-submit');
     await page.waitForURL('**/dashboard');
 
-    // Create a test queue
+    // Open create form and fill it
+    await page.click('[data-testid="new-queue-btn"]');
     await page.fill('#queue-name', queueName);
     await page.fill('[data-testid="schema-field-name-0"]', 'nome');
     await page.click('#create-queue-submit');
@@ -53,7 +54,7 @@ test.describe('Queue Management Dashboard', () => {
     test('Empty queue shows empty state', async ({ page }) => {
         await loginAndCreateQueue(page, 'Empty Queue Test');
         await page.locator('.queue-item').first().click();
-        await page.locator('text=Queue is empty').waitFor({ state: 'visible', timeout: 8000 });
+        await page.locator('[data-testid="empty-queue"]').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#members-table')).not.toBeVisible();
     });
 
@@ -116,7 +117,7 @@ test.describe('Queue Management Dashboard', () => {
         await page.click('[data-testid="remove-btn-0"]');
 
         // Queue empty again
-        await page.locator('text=Queue is empty').waitFor({ state: 'visible', timeout: 8000 });
+        await page.locator('[data-testid="empty-queue"]').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#members-table')).not.toBeVisible();
     });
 
@@ -134,23 +135,25 @@ test.describe('Queue Management Dashboard', () => {
         // Mock confirm dialog
         page.on('dialog', dialog => dialog.accept());
         await page.click('#clear-all-btn');
+        // Double-click to confirm (inline confirm pattern)
+        await page.click('#clear-all-btn');
 
-        await page.locator('text=Queue is empty').waitFor({ state: 'visible', timeout: 8000 });
+        await page.locator('[data-testid="empty-queue"]').waitFor({ state: 'visible', timeout: 8000 });
         await expect(page.locator('#members-table')).not.toBeVisible();
     });
 
     test('Back button returns to dashboard', async ({ page }) => {
         const queueId = await loginAndCreateQueue(page, 'Back Button Test');
         await page.goto(`/dashboard/queue/${queueId}`);
-        await page.click('text=← Back to Dashboard');
+        await page.click('[data-testid="back-btn"]');
         await page.waitForURL('**/dashboard');
     });
 
-    test('QR Code button in Dashboard opens modal without navigating', async ({ page }) => {
-        const queueId = await loginAndCreateQueue(page, 'QR Modal Test');
-        await page.click(`[data-testid="qr-btn-${queueId}"]`);
-        await expect(page.locator('#qr-code-img')).toBeVisible();
-        // Should still be on dashboard URL
-        await expect(page).toHaveURL(/dashboard$/);
+    test('QR Code button in Dashboard links to QR display', async ({ page }) => {
+        const queueId = await loginAndCreateQueue(page, 'QR Link Test');
+        const qrBtn = page.locator(`[data-testid="qr-btn-${queueId}"]`);
+        await expect(qrBtn).toBeVisible();
+        // Verify the link points to the QR display page
+        await expect(qrBtn).toHaveAttribute('href', `/display/qr?q=${queueId}`);
     });
 });

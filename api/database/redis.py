@@ -140,3 +140,59 @@ class QueueManager:
         """Returns the number of members in the queue."""
         key = self.get_queue_key(tenant_id, queue_id)
         return self.redis.zcard(key)
+
+    # ---- Wait Time Estimation (Fase 5) ----
+
+    def _intervals_key(self, tenant_id: str, queue_id: str) -> str:
+        return f"tenant:{tenant_id}:queue:{queue_id}:intervals"
+
+    def record_call_interval(self, tenant_id: str, queue_id: str) -> None:
+        """Records the timestamp of a call-next event. Computes interval from previous call."""
+        key = self._intervals_key(tenant_id, queue_id)
+        now = time.time()
+        # Get the most recent call timestamp
+        last = self.redis.lindex(key, 0)
+        if last is not None:
+            interval = now - float(last)
+            # Only record reasonable intervals (> 5s, < 2h)
+            if 5 < interval < 7200:
+                self.redis.lpush(key, str(now))
+                self.redis.ltrim(key, 0, 19)  # keep last 20 timestamps
+                return
+        # First call or unreasonable interval: just store timestamp
+        self.redis.lpush(key, str(now))
+        self.redis.ltrim(key, 0, 19)
+
+    def get_avg_interval(self, tenant_id: str, queue_id: str) -> Optional[float]:
+        """Computes median interval between recent calls. Returns None if < 3 data points."""
+        key = self._intervals_key(tenant_id, queue_id)
+        timestamps = self.redis.lrange(key, 0, 19)
+        if len(timestamps) < 3:
+            return None
+        # timestamps are newest-first; compute intervals between consecutive ones
+        floats = [float(t) for t in timestamps]
+        intervals = [floats[i] - floats[i + 1] for i in range(len(floats) - 1)]
+        # Filter out unreasonable intervals
+        intervals = [iv for iv in intervals if 5 < iv < 7200]
+        if not intervals:
+            return None
+        # Use median to resist outliers
+        intervals.sort()
+        mid = len(intervals) // 2
+        if len(intervals) % 2 == 0:
+            return (intervals[mid - 1] + intervals[mid]) / 2
+        return intervals[mid]
+
+    def estimate_wait(self, tenant_id: str, queue_id: str, position: int, fallback_seconds: int = 300) -> dict:
+        """Returns wait estimate for a given position.
+        Returns dict with estimated_wait_seconds (int|None) and sample_size (int).
+        """
+        key = self._intervals_key(tenant_id, queue_id)
+        sample_size = max(0, self.redis.llen(key) - 1)  # intervals = timestamps - 1
+        avg = self.get_avg_interval(tenant_id, queue_id)
+        if avg is None:
+            return {"estimated_wait_seconds": None, "sample_size": sample_size}
+        return {
+            "estimated_wait_seconds": round(avg * position),
+            "sample_size": sample_size,
+        }

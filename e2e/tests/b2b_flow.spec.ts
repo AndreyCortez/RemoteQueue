@@ -25,14 +25,14 @@ test.describe('B2B Authentication Flow', () => {
         await page.goto('/login');
         await page.fill('#login-email', SEED_EMAIL);
         await page.fill('#login-password', SEED_PASSWORD);
-        
+
         await Promise.all([
             page.waitForResponse('**/api/v1/auth/login'),
             page.click('#login-submit')
         ]);
-        
+
         await page.waitForURL('**/dashboard');
-        await expect(page.locator('h1')).toContainText('Dashboard');
+        await expect(page.locator('[data-testid="dashboard-heading"]')).toBeVisible();
     });
 
     test('Wrong password shows error', async ({ page }) => {
@@ -57,16 +57,17 @@ test.describe('B2B Dashboard Flow', () => {
         await page.goto('/login');
         await page.fill('#login-email', SEED_EMAIL);
         await page.fill('#login-password', SEED_PASSWORD);
-        
+
         await Promise.all([
             page.waitForResponse('**/api/v1/auth/login'),
             page.click('#login-submit')
         ]);
-        
+
         await page.waitForURL('**/dashboard');
     });
 
     test('Create a queue with form schema', async ({ page }) => {
+        await page.click('[data-testid="new-queue-btn"]');
         await page.fill('#queue-name', 'Caixa Priority');
         await page.fill('[data-testid="schema-field-name-0"]', 'nome');
         await page.click('#add-field-btn');
@@ -77,12 +78,22 @@ test.describe('B2B Dashboard Flow', () => {
     });
 
     test('View QR code for a queue', async ({ page }) => {
-        await page.fill('#queue-name', 'QR Test Queue');
+        const queueName = `QR Test Queue ${Date.now()}`;
+        await page.click('[data-testid="new-queue-btn"]');
+        await page.fill('#queue-name', queueName);
         await page.fill('[data-testid="schema-field-name-0"]', 'name');
         await page.click('#create-queue-submit');
         await expect(page.locator('#create-success')).toBeVisible();
-        await page.locator('.queue-item').first().locator('button[title="View QR Code"]').click();
-        await page.locator('#qr-code-img').waitFor({ state: 'visible', timeout: 8000 });
+
+        // Get queue ID from list item
+        const queueItem = page.locator('.queue-item', { hasText: queueName }).first();
+        await expect(queueItem).toBeVisible();
+        const testId = await queueItem.getAttribute('data-testid') ?? '';
+        const queueId = testId.replace('queue-item-', '');
+
+        // Navigate to QR display page and verify QR is rendered
+        await page.goto(`/display/qr?q=${queueId}`);
+        await page.locator('#qr-display-img').waitFor({ state: 'visible', timeout: 8000 });
     });
 
     test('Logout returns to login page', async ({ page }) => {

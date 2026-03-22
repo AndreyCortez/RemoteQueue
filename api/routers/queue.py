@@ -3,15 +3,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
-import re
 import qrcode
 import io
 
 from api.dependencies.security import get_current_tenant_id
 from api.dependencies.websockets import manager as websocket_manager
 from api.database.postgres import get_db
-from api.database.models import QueueConfig
+from api.database.models import QueueConfig, Tenant
 from api.database.redis import get_redis_client, QueueManager
+from api.schemas.form_schema import validate_payload_against_schema
 
 router = APIRouter(prefix="/api/v1/queue", tags=["Queue"])
 
@@ -23,46 +23,8 @@ class JoinQueueRequest(BaseModel):
 class CallNextRequest(BaseModel):
     queue_id: str
 
-_TYPE_CHECKERS = {
-    "string": lambda v: isinstance(v, str),
-    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
-    "boolean": lambda v: isinstance(v, bool),
-}
-
-def validate_payload_against_schema(payload: dict, schema: dict):
-    """
-    Validates a B2C payload against form_schema.
-
-    Supports two formats (backwards-compatible):
-      - Simple:  {"campo": "string"}
-      - Rich:    {"campo": {"type": "string", "label": "...", "required": true, "pattern": "..."}}
-
-    Simple format is treated as required=True with no pattern.
-    """
-    for field, definition in schema.items():
-        # Normalise to rich format
-        if isinstance(definition, str):
-            field_type: str = definition
-            required: bool = True
-            pattern: Optional[str] = None
-        else:
-            field_type = definition.get("type", "string")
-            required = definition.get("required", True)
-            pattern = definition.get("pattern")
-
-        value = payload.get(field)
-
-        if value is None:
-            if required:
-                raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
-            continue
-
-        checker = _TYPE_CHECKERS.get(field_type)
-        if checker and not checker(value):
-            raise HTTPException(status_code=422, detail=f"Field {field} must be a {field_type}")
-
-        if pattern and isinstance(value, str) and not re.fullmatch(pattern, value):
-            raise HTTPException(status_code=422, detail=f"Field {field} does not match required pattern")
+class MemberPositionRequest(BaseModel):
+    user_data: Dict[str, Any]
 
 @router.websocket("/{queue_id}/ws")
 async def websocket_queue_endpoint(websocket: WebSocket, queue_id: str):
@@ -75,14 +37,16 @@ async def websocket_queue_endpoint(websocket: WebSocket, queue_id: str):
 
 @router.get("/{queue_id}")
 def get_queue_info(queue_id: str, db: Session = Depends(get_db)):
-    """Public endpoint for B2C clients to fetch the form schema and queue name before joining."""
+    """Public endpoint for B2C clients to fetch the form schema, queue name and branding before joining."""
     queue_config = db.query(QueueConfig).filter(QueueConfig.id == queue_id).first()
     if not queue_config:
         raise HTTPException(status_code=404, detail="Queue not found")
+    tenant = db.query(Tenant).filter(Tenant.id == queue_config.tenant_id).first()
     return {
         "id": queue_config.id,
         "name": queue_config.name,
-        "form_schema": queue_config.form_schema
+        "form_schema": queue_config.form_schema,
+        "branding": tenant.branding if tenant else None,
     }
 
 @router.post("/join")
@@ -107,9 +71,11 @@ async def join_queue(
 
     position = manager.join_queue(tenant_id, request.queue_id, request.user_data)
     queue_size = manager.get_queue_size(tenant_id, request.queue_id)
+    wait_info = manager.estimate_wait(tenant_id, request.queue_id, queue_size)
     await websocket_manager.broadcast_to_queue(request.queue_id, {
         "event": "queue_updated",
         "queue_size": queue_size,
+        **wait_info,
     })
     return {"status": "success", "position": position, "queue_id": request.queue_id}
 
@@ -145,13 +111,35 @@ def get_queue_status(
     if not queue_config:
         raise HTTPException(status_code=404, detail="Queue not found")
     manager = QueueManager(client)
-    size = manager.get_queue_size(queue_config.tenant_id, queue_id)
+    tenant_id = queue_config.tenant_id
+    size = manager.get_queue_size(tenant_id, queue_id)
+    wait_info = manager.estimate_wait(tenant_id, queue_id, size)
     return {
         "queue_id": queue_id,
         "name": queue_config.name,
         "queue_size": size,
-        "last_called": None  # will be populated by WebSocket in practice
+        "last_called": None,
+        **wait_info,
     }
+
+
+@router.post("/{queue_id}/position")
+def get_member_position(
+    queue_id: str,
+    request: MemberPositionRequest,
+    db: Session = Depends(get_db),
+    client=Depends(get_redis_client)
+):
+    """Returns the current zero-indexed position of a queue member identified by user_data.
+    Used by B2C clients to re-sync their position after a queue_updated event."""
+    queue_config = db.query(QueueConfig).filter(QueueConfig.id == queue_id).first()
+    if not queue_config:
+        raise HTTPException(status_code=404, detail="Queue not found")
+    manager = QueueManager(client)
+    position = manager.get_position(queue_config.tenant_id, queue_id, request.user_data)
+    if position is None:
+        raise HTTPException(status_code=404, detail="Member not found in queue")
+    return {"position": int(position)}
 
 
 @router.get("/{queue_id}/qrcode-public")

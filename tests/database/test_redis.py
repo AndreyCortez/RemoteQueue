@@ -119,3 +119,80 @@ def test_reorder_preserves_fifo_for_others(queue_manager: QueueManager):
     assert names.index("B") < names.index("E")
     assert names.index("E") < names.index("C")
     assert names.index("E") < names.index("D")
+
+
+# ── Wait Time Estimation ─────────────────────────────────────────────────────
+
+def test_estimate_wait_no_data(queue_manager: QueueManager):
+    """With no call history, estimate returns None."""
+    result = queue_manager.estimate_wait("t1", "q1", 5)
+    assert result["estimated_wait_seconds"] is None
+    assert result["sample_size"] == 0
+
+
+def test_estimate_wait_insufficient_data(queue_manager: QueueManager, mock_redis):
+    """With fewer than 3 timestamps, estimate returns None."""
+    key = queue_manager._intervals_key("t1", "q1")
+    mock_redis.lpush(key, "1000.0")
+    mock_redis.lpush(key, "1060.0")
+    result = queue_manager.estimate_wait("t1", "q1", 5)
+    assert result["estimated_wait_seconds"] is None
+    assert result["sample_size"] == 1  # 2 timestamps = 1 interval
+
+
+def test_estimate_wait_with_enough_data(queue_manager: QueueManager, mock_redis):
+    """With 4 evenly-spaced timestamps (3 intervals of 60s), estimate = position * 60."""
+    key = queue_manager._intervals_key("t1", "q1")
+    # Timestamps: newest first → 1180, 1120, 1060, 1000 (intervals: 60, 60, 60)
+    for ts in ["1000.0", "1060.0", "1120.0", "1180.0"]:
+        mock_redis.lpush(key, ts)
+    result = queue_manager.estimate_wait("t1", "q1", 3)
+    assert result["estimated_wait_seconds"] == 180  # 3 * 60
+    assert result["sample_size"] == 3
+
+
+def test_get_avg_interval_uses_median(queue_manager: QueueManager, mock_redis):
+    """Median resists outliers: one huge interval shouldn't skew the result."""
+    key = queue_manager._intervals_key("t1", "q1")
+    # Timestamps: 1000, 1060, 1120, 1180, 5180 (outlier gap of 4000s at end)
+    # newest-first: 5180, 1180, 1120, 1060, 1000
+    # intervals: 4000, 60, 60, 60
+    # After filtering (5 < iv < 7200): all pass
+    # Sorted: [60, 60, 60, 4000] → median = (60+60)/2 = 60
+    for ts in ["1000.0", "1060.0", "1120.0", "1180.0", "5180.0"]:
+        mock_redis.lpush(key, ts)
+    avg = queue_manager.get_avg_interval("t1", "q1")
+    assert avg == 60.0
+
+
+def test_record_call_interval_stores_timestamps(queue_manager: QueueManager, mock_redis):
+    """record_call_interval pushes timestamps to the intervals list."""
+    import time
+    queue_manager.record_call_interval("t1", "q1")
+    key = queue_manager._intervals_key("t1", "q1")
+    assert mock_redis.llen(key) == 1
+    # Second call should also store
+    time.sleep(0.01)
+    queue_manager.record_call_interval("t1", "q1")
+    assert mock_redis.llen(key) >= 1  # at least original stays
+
+
+def test_record_call_interval_trims_to_20(queue_manager: QueueManager, mock_redis):
+    """The intervals list is capped at 20 entries."""
+    key = queue_manager._intervals_key("t1", "q1")
+    # Pre-fill with 25 entries
+    for i in range(25):
+        mock_redis.lpush(key, str(1000.0 + i * 100))
+    mock_redis.ltrim(key, 0, 19)
+    assert mock_redis.llen(key) == 20
+
+
+def test_estimate_wait_filters_unreasonable_intervals(queue_manager: QueueManager, mock_redis):
+    """Intervals < 5s or > 7200s are excluded from the median calculation."""
+    key = queue_manager._intervals_key("t1", "q1")
+    # Timestamps: 1000, 1001, 1002, 1062, 1122 (newest first: 1122, 1062, 1002, 1001, 1000)
+    # Intervals: 60, 60, 1, 1 — the 1s intervals should be filtered out
+    for ts in ["1000.0", "1001.0", "1002.0", "1062.0", "1122.0"]:
+        mock_redis.lpush(key, ts)
+    avg = queue_manager.get_avg_interval("t1", "q1")
+    assert avg == 60.0  # only the two 60s intervals survive

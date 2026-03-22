@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, JSON, DateTime, Boolean, Integer
+from sqlalchemy import Column, String, ForeignKey, JSON, DateTime, Boolean, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -19,6 +19,9 @@ class Tenant(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String, index=True, nullable=False)
+    branding = Column(JSON, nullable=True, default=None)
+    is_suspended = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime, server_default=func.now())
 
     users = relationship("B2BUser", back_populates="tenant", cascade="all, delete-orphan")
     queues = relationship("QueueConfig", back_populates="tenant", cascade="all, delete-orphan")
@@ -30,6 +33,7 @@ class B2BUser(Base):
     tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    is_superadmin = Column(Boolean, nullable=False, default=False, server_default="false")
 
     tenant = relationship("Tenant", back_populates="users")
 
@@ -62,4 +66,17 @@ class QueueEntry(Base):
     user_data = Column(JSON, nullable=False)
     status = Column(String, nullable=False, default="waiting")  # waiting | called | removed
     joined_at = Column(DateTime, server_default=func.now())
+    called_at = Column(DateTime, nullable=True)
     resolved_at = Column(DateTime, nullable=True)
+
+
+class AdminAuditLog(Base):
+    """Immutable audit trail for destructive superadmin actions."""
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    admin_user_id = Column(String(36), ForeignKey("b2b_users.id"), nullable=False, index=True)
+    action = Column(String, nullable=False)           # e.g. "suspend_tenant", "delete_tenant"
+    target_tenant_id = Column(String(36), nullable=True, index=True)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())

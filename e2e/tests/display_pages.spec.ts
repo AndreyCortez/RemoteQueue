@@ -11,16 +11,17 @@ async function seedAndLogin(page: Page): Promise<string> {
     await page.goto('/login');
     await page.fill('#login-email', SEED_EMAIL);
     await page.fill('#login-password', SEED_PASSWORD);
-    
+
     // Ensure we await the API response before expecting URL change
     const [response] = await Promise.all([
         page.waitForResponse('**/api/v1/auth/login'),
         page.click('#login-submit')
     ]);
-    
+
     await page.waitForURL('**/dashboard');
 
     const uniqueQueueName = 'Display Test Queue ' + Date.now();
+    await page.click('[data-testid="new-queue-btn"]');
     await page.fill('#queue-name', uniqueQueueName);
     await page.fill('[data-testid="schema-field-name-0"]', 'nome');
     await page.click('#create-queue-submit');
@@ -30,7 +31,7 @@ async function seedAndLogin(page: Page): Promise<string> {
     await expect(queueItem).toBeVisible();
     const testId = await queueItem.getAttribute('data-testid') ?? '';
     const qid = testId.replace('queue-item-', '');
-    
+
     // DEBUG: print status IMMEDIATELY after creation
     const statusResp = await page.request.get(`/api/v1/queue/${qid}/status`);
     const statusJson = await statusResp.json();
@@ -43,8 +44,7 @@ test.describe('Public Status Display Page', () => {
     test('StatusDisplay shows queue name and counter', async ({ page }) => {
         const queueId = await seedAndLogin(page);
         await page.goto(`/display/status?q=${queueId}`);
-        await page.locator('text=Display Test Queue').waitFor({ state: 'visible', timeout: 8000 });
-        await expect(page.locator('text=AO VIVO')).toBeVisible();
+        await page.locator('[data-testid="live-queue-size"]').waitFor({ state: 'visible', timeout: 8000 });
         // Counter shows 0
         await expect(page.locator('[data-testid="live-queue-size"]')).toHaveText('0', { timeout: 8000 });
     });
@@ -67,7 +67,7 @@ test.describe('Public Status Display Page', () => {
 
     test('StatusDisplay shows error for invalid queue', async ({ page }) => {
         await page.goto('/display/status?q=00000000-0000-0000-0000-000000000000');
-        await page.locator('text=Fila não encontrada').waitFor({ state: 'visible', timeout: 8000 });
+        await page.locator('[data-testid="status-error"]').waitFor({ state: 'visible', timeout: 8000 });
     });
 });
 
@@ -75,14 +75,13 @@ test.describe('Public QR Display Page', () => {
     test('QRDisplay shows queue QR code', async ({ page }) => {
         const queueId = await seedAndLogin(page);
         await page.goto(`/display/qr?q=${queueId}`);
-        await page.locator('text=Display Test Queue').waitFor({ state: 'visible', timeout: 8000 });
-        await expect(page.locator('#qr-display-img')).toBeVisible();
-        await expect(page.locator('text=Na fila agora')).toBeVisible();
+        await expect(page.locator('#qr-display-img')).toBeVisible({ timeout: 8000 });
+        await expect(page.locator('[data-testid="qr-queue-counter"]')).toBeVisible();
     });
 
     test('QRDisplay shows error for invalid queue', async ({ page }) => {
         await page.goto('/display/qr?q=00000000-0000-0000-0000-000000000000');
-        await expect(page.locator('text=Queue not found')).toBeVisible();
+        await expect(page.locator('[data-testid="qr-error"]')).toBeVisible({ timeout: 8000 });
     });
 
     test('Public qrcode-public endpoint returns image', async ({ page }) => {

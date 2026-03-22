@@ -46,6 +46,7 @@ export async function seedLoginAndCreateQueue(
     await page.waitForURL('**/dashboard');
     const token: string = (await loginResp.json()).access_token;
 
+    await page.click('[data-testid="new-queue-btn"]');
     await page.fill('#queue-name', queueName);
     await page.fill('[data-testid="schema-field-name-0"]', schemaFieldName);
     await page.click('#create-queue-submit');

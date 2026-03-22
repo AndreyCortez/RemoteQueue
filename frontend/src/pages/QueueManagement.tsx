@@ -2,6 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { useQueueWebSocket } from '../hooks/useQueueWebSocket';
+import type { FormSchemaV2, TenantBranding } from '../types/formSchema';
+import { normalizeSchema } from '../types/formSchema';
+import FormBuilder from '../components/FormBuilder/FormBuilder';
+import FormPreview from '../components/FormBuilder/FormPreview';
+import BrandingConfig from '../components/BrandingConfig';
 
 const API_BASE = '/api/v1';
 
@@ -14,7 +20,7 @@ interface Member {
 interface QueueInfo {
     id: string;
     name: string;
-    form_schema: Record<string, string>;
+    form_schema: unknown;
     qr_rotation_enabled: boolean;
     qr_rotation_interval: number;
 }
@@ -32,8 +38,12 @@ export default function QueueManagement() {
 
     // Settings panel
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [settingsTab, setSettingsTab] = useState<'qr' | 'form' | 'branding'>('qr');
     const [editQrEnabled, setEditQrEnabled] = useState(false);
     const [editQrInterval, setEditQrInterval] = useState(300);
+    const [editSchema, setEditSchema] = useState<FormSchemaV2>({ version: 2, elements: [] });
+    const [editBranding, setEditBranding] = useState<TenantBranding>({});
+    const [showPreview, setShowPreview] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // Action guards
@@ -77,14 +87,10 @@ export default function QueueManagement() {
         fetchMembers();
     }, [queueId]);
 
-    // WebSocket for real-time updates
-    useEffect(() => {
-        if (!queueId) return;
-        const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-        const ws = new WebSocket(`${protocol}://${location.host}/api/v1/queue/${queueId}/ws`);
-        ws.onmessage = () => fetchMembers(); // Any event → refresh list
-        return () => ws.close();
-    }, [queueId, fetchMembers]);
+    // WebSocket for real-time updates (with auto-reconnect)
+    useQueueWebSocket(queueId ?? null, () => {
+        fetchMembers();
+    });
 
     const handleCallNext = async () => {
         if (isCalling) return;
@@ -92,13 +98,12 @@ export default function QueueManagement() {
         try {
             const res = await axios.post(`${API_BASE}/b2b/queue/${queueId}/call-next`, {}, { headers });
             setCalledUser(res.data.user_data);
-            showToast('Próximo paciente chamado ✓');
-            fetchMembers();
+            showToast('Proximo paciente chamado ✓');
         } catch (err: unknown) {
             if (axios.isAxiosError(err)) {
                 const detail = err.response?.data?.detail;
-                if (detail === 'queue_is_empty') showToast('A fila está vazia!', 'error');
-                else showToast('Erro ao chamar próximo', 'error');
+                if (detail === 'queue_is_empty') showToast('A fila esta vazia!', 'error');
+                else showToast('Erro ao chamar proximo', 'error');
             } else {
                 showToast('Erro inesperado', 'error');
             }
@@ -127,7 +132,6 @@ export default function QueueManagement() {
                 user_data: member.user_data,
                 target_position: member.position - 1
             }, { headers });
-            fetchMembers();
         } catch {
             showToast('Erro ao reordenar', 'error');
         }
@@ -140,7 +144,6 @@ export default function QueueManagement() {
                 user_data: member.user_data,
                 target_position: member.position + 1
             }, { headers });
-            fetchMembers();
         } catch {
             showToast('Erro ao reordenar', 'error');
         }
@@ -164,26 +167,41 @@ export default function QueueManagement() {
         }
     };
 
-    const openSettings = () => {
+    const openSettings = async () => {
         if (!queue) return;
         setEditQrEnabled(queue.qr_rotation_enabled || false);
         setEditQrInterval(queue.qr_rotation_interval || 300);
+        setEditSchema(normalizeSchema(queue.form_schema));
+        // Fetch branding
+        try {
+            const res = await axios.get(`${API_BASE}/b2b/queues/branding`, { headers });
+            setEditBranding(res.data || {});
+        } catch {
+            setEditBranding({});
+        }
         setIsSettingsOpen(true);
+        setSettingsTab('qr');
     };
 
     const saveSettings = async () => {
         if (isSaving) return;
         setIsSaving(true);
         try {
+            // Save queue config (QR + schema)
             await axios.put(`${API_BASE}/b2b/queues/${queueId}`, {
                 qr_rotation_enabled: editQrEnabled,
-                qr_rotation_interval: editQrInterval
+                qr_rotation_interval: editQrInterval,
+                form_schema: editSchema,
             }, { headers });
-            showToast('Configurações salvas com sucesso');
+
+            // Save branding (tenant-level)
+            await axios.put(`${API_BASE}/b2b/queues/branding`, editBranding, { headers });
+
+            showToast('Configuracoes salvas com sucesso');
             fetchQueue();
             setIsSettingsOpen(false);
         } catch {
-            showToast('Erro ao salvar configurações', 'error');
+            showToast('Erro ao salvar configuracoes', 'error');
         } finally {
             setIsSaving(false);
         }
@@ -214,12 +232,12 @@ export default function QueueManagement() {
             <div className="dashboard-header">
                 <div>
                     <button className="btn btn-secondary btn-sm" onClick={() => navigate('/dashboard')}
-                        style={{ marginBottom: 8 }}>← Voltar</button>
+                        data-testid="back-btn" style={{ marginBottom: 8 }}>← Voltar</button>
                     <h1 className="heading-lg" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60vw' }}>
                         {queue?.name || '...'}
                         {queue?.qr_rotation_enabled && (
                             <span style={{ marginLeft: 12, fontSize: '0.9rem', color: 'var(--accent-primary)', padding: '2px 10px', background: 'var(--accent-glow)', borderRadius: 'var(--radius-lg)' }}>
-                                🔄 QR com código temporário
+                                🔄 QR com codigo temporario
                             </span>
                         )}
                     </h1>
@@ -231,9 +249,9 @@ export default function QueueManagement() {
                     <button
                         className="btn btn-secondary"
                         onClick={openSettings}
-                        title="Configurações da fila"
+                        title="Configuracoes da fila"
                     >
-                        ⚙️ Configurações
+                        ⚙️ Configuracoes
                     </button>
                     <button
                         id="call-next-btn"
@@ -241,7 +259,7 @@ export default function QueueManagement() {
                         onClick={handleCallNext}
                         disabled={members.length === 0 || isCalling}
                     >
-                        {isCalling ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Chamar Próximo ▶'}
+                        {isCalling ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Chamar Proximo ▶'}
                     </button>
                     <button
                         id="clear-all-btn"
@@ -255,44 +273,104 @@ export default function QueueManagement() {
                 </div>
             </div>
 
-            {/* SETTINGS PANEL — progressive disclosure, matches Dashboard pattern */}
+            {/* SETTINGS PANEL — tabbed */}
             {isSettingsOpen && (
                 <div className="card" style={{ maxWidth: 'none', marginBottom: 24, animation: 'slide-up 200ms ease' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                        <h2 className="heading-md" style={{ marginBottom: 0 }}>Configurações da Fila</h2>
-                        <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setIsSettingsOpen(false)}
-                            aria-label="Fechar configurações"
-                        >✕</button>
-                    </div>
-                    <div className="form-group">
-                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                            <input
-                                id="qr-rotation-toggle"
-                                type="checkbox"
-                                checked={editQrEnabled}
-                                onChange={e => setEditQrEnabled(e.target.checked)}
-                            />
-                            QR Code com senha temporária — impede entradas duplicadas
-                        </label>
-                        {editQrEnabled && (
-                            <div style={{ marginTop: 10, maxWidth: 280 }}>
-                                <label className="form-label" htmlFor="edit-qr-interval">Trocar a senha a cada</label>
-                                <select
-                                    id="edit-qr-interval"
-                                    className="form-select"
-                                    value={editQrInterval}
-                                    onChange={e => setEditQrInterval(Number(e.target.value))}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <h2 className="heading-md" style={{ marginBottom: 0 }}>Configuracoes da Fila</h2>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            {settingsTab === 'form' && (
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setShowPreview(!showPreview)}
                                 >
-                                    <option value={30}>30 Segundos</option>
-                                    <option value={60}>1 Minuto</option>
-                                    <option value={300}>5 Minutos</option>
-                                    <option value={900}>15 Minutos</option>
-                                </select>
-                            </div>
-                        )}
+                                    {showPreview ? 'Esconder Preview' : 'Ver Preview'}
+                                </button>
+                            )}
+                            <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setIsSettingsOpen(false)}
+                                aria-label="Fechar configuracoes"
+                            >✕</button>
+                        </div>
                     </div>
+
+                    {/* Tabs */}
+                    <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '1px solid var(--border-subtle)' }}>
+                        {([
+                            ['qr', 'QR Code'],
+                            ['form', 'Formulario'],
+                            ['branding', 'Marca'],
+                        ] as const).map(([tab, label]) => (
+                            <button
+                                key={tab}
+                                type="button"
+                                onClick={() => setSettingsTab(tab)}
+                                style={{
+                                    padding: '10px 20px', border: 'none', background: 'none',
+                                    cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+                                    color: settingsTab === tab ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                    borderBottom: settingsTab === tab ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                                    fontFamily: 'inherit',
+                                    transition: 'all var(--transition-fast)',
+                                }}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* QR Tab */}
+                    {settingsTab === 'qr' && (
+                        <div className="form-group">
+                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                                <input
+                                    id="qr-rotation-toggle"
+                                    type="checkbox"
+                                    checked={editQrEnabled}
+                                    onChange={e => setEditQrEnabled(e.target.checked)}
+                                />
+                                QR Code com senha temporaria — impede entradas duplicadas
+                            </label>
+                            {editQrEnabled && (
+                                <div style={{ marginTop: 10, maxWidth: 280 }}>
+                                    <label className="form-label" htmlFor="edit-qr-interval">Trocar a senha a cada</label>
+                                    <select
+                                        id="edit-qr-interval"
+                                        className="form-select"
+                                        value={editQrInterval}
+                                        onChange={e => setEditQrInterval(Number(e.target.value))}
+                                    >
+                                        <option value={30}>30 Segundos</option>
+                                        <option value={60}>1 Minuto</option>
+                                        <option value={300}>5 Minutos</option>
+                                        <option value={900}>15 Minutos</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Form Tab */}
+                    {settingsTab === 'form' && (
+                        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                            <div style={{ flex: 2, minWidth: 320 }}>
+                                <FormBuilder schema={editSchema} onChange={setEditSchema} />
+                            </div>
+                            {showPreview && (
+                                <div style={{ flex: 1, minWidth: 300 }}>
+                                    <FormPreview schema={editSchema} branding={editBranding} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Branding Tab */}
+                    {settingsTab === 'branding' && (
+                        <BrandingConfig branding={editBranding} onChange={setEditBranding} />
+                    )}
+
                     <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
                         <button id="save-settings-btn" className="btn btn-primary" onClick={saveSettings} disabled={isSaving}>
                             {isSaving ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Salvar'}
@@ -307,34 +385,16 @@ export default function QueueManagement() {
             {/* Public links card */}
             <div className="card" style={{ marginBottom: 24, padding: '16px 24px' }}>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12, fontWeight: 600 }}>
-                    Links Públicos
+                    Links Publicos
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    <a
-                        href={`/join?q=${queueId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-secondary btn-sm"
-                        data-testid="link-join"
-                    >
-                        📱 Formulário do paciente
+                    <a href={`/join?q=${queueId}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" data-testid="link-join">
+                        📱 Formulario do paciente
                     </a>
-                    <a
-                        href={`/display/qr?q=${queueId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-secondary btn-sm"
-                        data-testid="link-qr-display"
-                    >
+                    <a href={`/display/qr?q=${queueId}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" data-testid="link-qr-display">
                         🖥️ Tela do Totem (QR Code)
                     </a>
-                    <a
-                        href={`/display/status?q=${queueId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-secondary btn-sm"
-                        data-testid="link-status-display"
-                    >
+                    <a href={`/display/status?q=${queueId}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" data-testid="link-status-display">
                         📺 Tela da TV (Status)
                     </a>
                 </div>
@@ -376,7 +436,7 @@ export default function QueueManagement() {
                     </div>
                     <button
                         onClick={() => setCalledUser(null)}
-                        aria-label="Dispensar notificação"
+                        aria-label="Dispensar notificacao"
                         className="btn btn-ghost btn-sm"
                         style={{ marginTop: 8, fontSize: '0.8rem' }}
                     >
@@ -390,7 +450,7 @@ export default function QueueManagement() {
                 {loading ? (
                     <div style={{ textAlign: 'center', padding: 40 }}><span className="spinner" role="status" aria-label="Carregando pacientes" /></div>
                 ) : members.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+                    <div data-testid="empty-queue" style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
                         <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>✓</div>
                         <p>Nenhum paciente na fila</p>
                     </div>
@@ -399,9 +459,9 @@ export default function QueueManagement() {
                         <table id="members-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                <th style={thStyle}>Nº</th>
+                                <th style={thStyle}>No</th>
                                 <th style={thStyle}>Dados</th>
-                                <th style={thStyle}>Horário</th>
+                                <th style={thStyle}>Horario</th>
                                 <th style={thStyle}>Ordem</th>
                                 <th style={thStyle}>Remover</th>
                             </tr>
@@ -417,7 +477,6 @@ export default function QueueManagement() {
                                         transition: 'background var(--transition-fast)'
                                     }}
                                 >
-                                    {/* Position badge */}
                                     <td style={tdStyle}>
                                         <span className="tabular" style={{
                                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -429,7 +488,6 @@ export default function QueueManagement() {
                                             {member.position + 1}
                                         </span>
                                     </td>
-                                    {/* Form data fields */}
                                     <td style={tdStyle}>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                             {Object.keys(member.user_data).length === 0 ? (
@@ -454,11 +512,9 @@ export default function QueueManagement() {
                                             })}
                                         </div>
                                     </td>
-                                    {/* Timestamp */}
                                     <td className="tabular" style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                                         {formatTime(member.joined_at)}
                                     </td>
-                                    {/* Reorder */}
                                     <td style={tdStyle}>
                                         <div style={{ display: 'flex', gap: 4 }}>
                                             <button
@@ -481,7 +537,6 @@ export default function QueueManagement() {
                                             >▼</button>
                                         </div>
                                     </td>
-                                    {/* Remove */}
                                     <td style={tdStyle}>
                                         <button
                                             className="btn btn-danger btn-sm"

@@ -136,6 +136,7 @@ body {
 .alert-error { background: rgba(220,38,38,0.06); border-color: rgba(220,38,38,0.2); color: var(--accent-error); }
 .alert-success { background: rgba(5,150,105,0.06); border-color: rgba(5,150,105,0.2); color: var(--accent-success); }
 .dashboard-container { min-height: 100vh; padding: 24px; max-width: 960px; margin: 0 auto; }
+.dashboard-container .card { max-width: none; }
 .dashboard-header {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle);

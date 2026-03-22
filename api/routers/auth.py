@@ -4,7 +4,7 @@ from passlib.context import CryptContext
 from datetime import timedelta
 
 from api.database.postgres import get_db
-from api.database.models import B2BUser
+from api.database.models import B2BUser, Tenant
 from api.dependencies.security import create_access_token
 from api.config import settings
 from fastapi.security import OAuth2PasswordRequestForm
@@ -24,6 +24,10 @@ def login(
 
     if not user or not pwd_context.verify(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if tenant and tenant.is_suspended:
+        raise HTTPException(status_code=403, detail="account_suspended")
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(

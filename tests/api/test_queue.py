@@ -281,3 +281,397 @@ def test_current_qr_and_join_with_rotation(db_session, test_queue_config):
     r_correct = client.post("/api/v1/queue/join", json=payload_correct)
     assert r_correct.status_code == 200
     assert r_correct.json()["status"] == "success"
+
+
+# ── Fase 4B: Schema V2 — novos tipos de campo ───────────────────────────────
+
+@pytest.fixture
+def v2_schema_queue(db_session):
+    """Queue com form_schema V2 contendo todos os tipos novos."""
+    tenant = Tenant(name="V2 Schema Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    queue = QueueConfig(
+        tenant_id=tenant.id,
+        name="V2 Queue",
+        form_schema={
+            "version": 2,
+            "elements": [
+                {
+                    "kind": "section",
+                    "id": "s1",
+                    "title": "Dados Pessoais",
+                    "description": "Preencha seus dados"
+                },
+                {
+                    "kind": "field",
+                    "id": "f1",
+                    "key": "nome",
+                    "type": "string",
+                    "label": "Nome completo",
+                    "required": True
+                },
+                {
+                    "kind": "field",
+                    "id": "f2",
+                    "key": "cpf",
+                    "type": "cpf",
+                    "label": "CPF",
+                    "required": True
+                },
+                {
+                    "kind": "field",
+                    "id": "f3",
+                    "key": "data_nascimento",
+                    "type": "date",
+                    "label": "Data de Nascimento",
+                    "required": False
+                },
+                {
+                    "kind": "field",
+                    "id": "f4",
+                    "key": "convenio",
+                    "type": "select",
+                    "label": "Convênio",
+                    "options": ["Particular", "Unimed", "SulAmérica"],
+                    "required": True
+                },
+                {
+                    "kind": "field",
+                    "id": "f5",
+                    "key": "urgente",
+                    "type": "boolean",
+                    "label": "Urgente?",
+                    "required": True
+                },
+                {
+                    "kind": "field",
+                    "id": "f6",
+                    "key": "como_conheceu",
+                    "type": "poll",
+                    "label": "Como conheceu?",
+                    "options": ["Indicação", "Google", "Instagram"],
+                    "required": False
+                },
+                {
+                    "kind": "field",
+                    "id": "f7",
+                    "key": "idade",
+                    "type": "integer",
+                    "label": "Idade",
+                    "required": True
+                },
+            ]
+        }
+    )
+    db_session.add(queue)
+    db_session.commit()
+    db_session.refresh(queue)
+    return queue
+
+
+def test_join_v2_schema_all_fields(v2_schema_queue):
+    """V2 schema com todos os campos preenchidos corretamente."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Maria Silva",
+            "cpf": "529.982.247-25",
+            "data_nascimento": "1990-05-15",
+            "convenio": "Unimed",
+            "urgente": False,
+            "como_conheceu": "Google",
+            "idade": 35
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+
+
+def test_join_v2_optional_fields_absent(v2_schema_queue):
+    """Campos opcionais (data_nascimento, como_conheceu) podem ser omitidos."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Carlos",
+            "cpf": "529.982.247-25",
+            "convenio": "Particular",
+            "urgente": True,
+            "idade": 28
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_v2_required_field_missing(v2_schema_queue):
+    """Campo obrigatório 'nome' ausente deve retornar 422."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "cpf": "529.982.247-25",
+            "convenio": "Particular",
+            "urgente": True,
+            "idade": 30
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "nome" in resp.json()["detail"].lower()
+
+
+def test_join_v2_cpf_valid(v2_schema_queue):
+    """CPF com formato e dígitos verificadores válidos."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Ana",
+            "cpf": "529.982.247-25",
+            "convenio": "Particular",
+            "urgente": False,
+            "idade": 22
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_v2_cpf_invalid_format(v2_schema_queue):
+    """CPF sem formatação correta deve ser rejeitado."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Pedro",
+            "cpf": "52998224725",
+            "convenio": "Particular",
+            "urgente": False,
+            "idade": 30
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "cpf" in resp.json()["detail"].lower()
+
+
+def test_join_v2_cpf_bad_checkdigit(v2_schema_queue):
+    """CPF com formato correto mas dígito verificador errado."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "João",
+            "cpf": "529.982.247-99",
+            "convenio": "Particular",
+            "urgente": False,
+            "idade": 25
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "cpf" in resp.json()["detail"].lower()
+
+
+def test_join_v2_date_valid(v2_schema_queue):
+    """Data em formato ISO válido."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Lucia",
+            "cpf": "529.982.247-25",
+            "data_nascimento": "2000-12-31",
+            "convenio": "Particular",
+            "urgente": False,
+            "idade": 25
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_v2_date_invalid(v2_schema_queue):
+    """Data em formato inválido deve ser rejeitada."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Roberto",
+            "cpf": "529.982.247-25",
+            "data_nascimento": "31/12/2000",
+            "convenio": "Particular",
+            "urgente": False,
+            "idade": 25
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "date" in resp.json()["detail"].lower()
+
+
+def test_join_v2_select_valid(v2_schema_queue):
+    """Valor de select dentro das opções definidas."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Fernanda",
+            "cpf": "529.982.247-25",
+            "convenio": "SulAmérica",
+            "urgente": False,
+            "idade": 40
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_v2_select_invalid_option(v2_schema_queue):
+    """Valor de select fora das opções deve ser rejeitado."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Marcos",
+            "cpf": "529.982.247-25",
+            "convenio": "Bradesco Saúde",
+            "urgente": False,
+            "idade": 33
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "must be one of" in resp.json()["detail"].lower()
+
+
+def test_join_v2_poll_valid(v2_schema_queue):
+    """Valor de poll dentro das opções."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Julia",
+            "cpf": "529.982.247-25",
+            "convenio": "Particular",
+            "urgente": True,
+            "como_conheceu": "Indicação",
+            "idade": 29
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_v2_poll_invalid_option(v2_schema_queue):
+    """Valor de poll fora das opções deve ser rejeitado."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Rafael",
+            "cpf": "529.982.247-25",
+            "convenio": "Particular",
+            "urgente": False,
+            "como_conheceu": "TikTok",
+            "idade": 20
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 422
+    assert "must be one of" in resp.json()["detail"].lower()
+
+
+def test_join_v2_sections_ignored_in_validation(v2_schema_queue):
+    """Seções não devem criar requisitos de validação."""
+    payload = {
+        "queue_id": str(v2_schema_queue.id),
+        "user_data": {
+            "nome": "Test",
+            "cpf": "529.982.247-25",
+            "convenio": "Particular",
+            "urgente": False,
+            "idade": 18
+        }
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_join_v2_backwards_compat_legacy(db_session):
+    """Schema legado simples continua funcionando com o novo código."""
+    tenant = Tenant(name="Legacy V2 Compat")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    queue = QueueConfig(
+        tenant_id=tenant.id,
+        name="Legacy Queue",
+        form_schema={"nome": "string", "idade": "integer"}
+    )
+    db_session.add(queue)
+    db_session.commit()
+    db_session.refresh(queue)
+
+    payload = {
+        "queue_id": str(queue.id),
+        "user_data": {"nome": "Legado", "idade": 50}
+    }
+    resp = client.post("/api/v1/queue/join", json=payload)
+    assert resp.status_code == 200
+
+
+def test_get_queue_info_returns_branding(db_session):
+    """GET /queue/{id} deve retornar branding do tenant."""
+    tenant = Tenant(
+        name="Branded Tenant",
+        branding={"company_name": "Clínica São Lucas", "primary_color": "#0369a1"}
+    )
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    queue = QueueConfig(
+        tenant_id=tenant.id,
+        name="Branded Queue",
+        form_schema={"nome": "string"}
+    )
+    db_session.add(queue)
+    db_session.commit()
+    db_session.refresh(queue)
+
+    resp = client.get(f"/api/v1/queue/{queue.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["branding"]["company_name"] == "Clínica São Lucas"
+    assert data["branding"]["primary_color"] == "#0369a1"
+
+
+def test_get_queue_info_no_branding(db_session):
+    """GET /queue/{id} sem branding retorna null."""
+    tenant = Tenant(name="No Brand Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    queue = QueueConfig(
+        tenant_id=tenant.id,
+        name="Plain Queue",
+        form_schema={"nome": "string"}
+    )
+    db_session.add(queue)
+    db_session.commit()
+    db_session.refresh(queue)
+
+    resp = client.get(f"/api/v1/queue/{queue.id}")
+    assert resp.status_code == 200
+    assert resp.json()["branding"] is None
+
+
+# ── Fase 5: Wait Time Estimation via API ──────────────────────────────────────
+
+def test_status_includes_wait_estimate_fields(test_queue_config):
+    """GET /queue/{id}/status returns estimated_wait_seconds and sample_size."""
+    resp = client.get(f"/api/v1/queue/{test_queue_config.id}/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "estimated_wait_seconds" in data
+    assert "sample_size" in data
+    # No call history → null estimate, 0 samples
+    assert data["estimated_wait_seconds"] is None
+    assert data["sample_size"] == 0

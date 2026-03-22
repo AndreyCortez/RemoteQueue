@@ -185,3 +185,190 @@ def test_update_queue_config_idor(client: TestClient, db_session: Session):
         json={"name": "Hijacked"}
     )
     assert resp.status_code == 404
+
+
+# ── Fase 4B: Schema V2 na criação/update ─────────────────────────────────────
+
+def test_create_queue_v2_schema(client: TestClient, db_session: Session):
+    """Criar fila com schema V2 válido deve funcionar."""
+    tenant = Tenant(name="V2 Create Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    v2_schema = {
+        "version": 2,
+        "elements": [
+            {"kind": "section", "id": "s1", "title": "Dados"},
+            {"kind": "field", "id": "f1", "key": "nome", "type": "string", "label": "Nome", "required": True},
+            {"kind": "field", "id": "f2", "key": "tipo", "type": "select", "label": "Tipo", "options": ["A", "B"], "required": True},
+        ]
+    }
+
+    resp = client.post(
+        "/api/v1/b2b/queues",
+        headers={"x-tenant-token": token},
+        json={"name": "V2 Queue", "form_schema": v2_schema}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["form_schema"]["version"] == 2
+    assert len(data["form_schema"]["elements"]) == 3
+
+
+def test_create_queue_v2_invalid_field_type(client: TestClient, db_session: Session):
+    """Schema V2 com tipo de campo desconhecido deve retornar 422."""
+    tenant = Tenant(name="V2 Invalid Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    bad_schema = {
+        "version": 2,
+        "elements": [
+            {"kind": "field", "id": "f1", "key": "x", "type": "telefone", "label": "Tel"},
+        ]
+    }
+
+    resp = client.post(
+        "/api/v1/b2b/queues",
+        headers={"x-tenant-token": token},
+        json={"name": "Bad Queue", "form_schema": bad_schema}
+    )
+    assert resp.status_code == 422
+
+
+def test_create_queue_v2_duplicate_keys(client: TestClient, db_session: Session):
+    """Schema V2 com keys duplicadas deve retornar 422."""
+    tenant = Tenant(name="Dup Key Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    dup_schema = {
+        "version": 2,
+        "elements": [
+            {"kind": "field", "id": "f1", "key": "nome", "type": "string", "label": "Nome"},
+            {"kind": "field", "id": "f2", "key": "nome", "type": "string", "label": "Nome 2"},
+        ]
+    }
+
+    resp = client.post(
+        "/api/v1/b2b/queues",
+        headers={"x-tenant-token": token},
+        json={"name": "Dup Queue", "form_schema": dup_schema}
+    )
+    assert resp.status_code == 422
+
+
+def test_create_queue_v2_select_without_options(client: TestClient, db_session: Session):
+    """Campo select sem options deve retornar 422."""
+    tenant = Tenant(name="No Opts Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    bad_schema = {
+        "version": 2,
+        "elements": [
+            {"kind": "field", "id": "f1", "key": "tipo", "type": "select", "label": "Tipo"},
+        ]
+    }
+
+    resp = client.post(
+        "/api/v1/b2b/queues",
+        headers={"x-tenant-token": token},
+        json={"name": "No Opts Queue", "form_schema": bad_schema}
+    )
+    assert resp.status_code == 422
+
+
+def test_update_queue_v2_schema(client: TestClient, db_session: Session):
+    """Atualizar schema de fila para V2 deve funcionar."""
+    tenant = Tenant(name="Update V2 Tenant")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+    headers = {"x-tenant-token": token}
+
+    create_resp = client.post(
+        "/api/v1/b2b/queues",
+        headers=headers,
+        json={"name": "Upgrade Queue", "form_schema": {"nome": "string"}}
+    )
+    queue_id = create_resp.json()["id"]
+
+    v2_schema = {
+        "version": 2,
+        "elements": [
+            {"kind": "field", "id": "f1", "key": "nome", "type": "string", "label": "Nome"},
+            {"kind": "field", "id": "f2", "key": "cpf", "type": "cpf", "label": "CPF", "required": False},
+        ]
+    }
+
+    resp = client.put(
+        f"/api/v1/b2b/queues/{queue_id}",
+        headers=headers,
+        json={"form_schema": v2_schema}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["form_schema"]["version"] == 2
+
+
+# ── Fase 4B: Branding endpoints ──────────────────────────────────────────────
+
+def test_get_branding_empty(client: TestClient, db_session: Session):
+    """Branding vazio retorna {}."""
+    tenant = Tenant(name="No Brand")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    resp = client.get("/api/v1/b2b/queues/branding", headers={"x-tenant-token": token})
+    assert resp.status_code == 200
+    assert resp.json() == {}
+
+
+def test_update_and_get_branding(client: TestClient, db_session: Session):
+    """Atualizar branding e verificar que persiste."""
+    tenant = Tenant(name="Branded Co")
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+    headers = {"x-tenant-token": token}
+
+    resp = client.put(
+        "/api/v1/b2b/queues/branding",
+        headers=headers,
+        json={
+            "company_name": "Clínica São Lucas",
+            "primary_color": "#0369a1",
+            "logo_url": "https://example.com/logo.png"
+        }
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["company_name"] == "Clínica São Lucas"
+    assert data["primary_color"] == "#0369a1"
+
+    get_resp = client.get("/api/v1/b2b/queues/branding", headers=headers)
+    assert get_resp.status_code == 200
+    assert get_resp.json()["company_name"] == "Clínica São Lucas"
+
+
+def test_update_branding_partial(client: TestClient, db_session: Session):
+    """Atualizar branding parcialmente preserva campos existentes."""
+    tenant = Tenant(name="Partial Brand", branding={"company_name": "Old", "primary_color": "#000"})
+    db_session.add(tenant)
+    db_session.commit()
+    token = create_mock_token(tenant.id)
+
+    resp = client.put(
+        "/api/v1/b2b/queues/branding",
+        headers={"x-tenant-token": token},
+        json={"primary_color": "#fff"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["company_name"] == "Old"
+    assert data["primary_color"] == "#fff"

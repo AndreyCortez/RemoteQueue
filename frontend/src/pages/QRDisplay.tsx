@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
+import type { TenantBranding } from '../types/formSchema';
+import { useQueueWebSocket } from '../hooks/useQueueWebSocket';
 
 const API_BASE = '/api/v1';
 
@@ -9,13 +11,9 @@ interface QueueInfo {
     id: string;
     name: string;
     form_schema: Record<string, string>;
+    branding?: TenantBranding | null;
 }
 
-/**
- * QRDisplay — fullscreen QR Code page for tablets/kiosks.
- * Accessible publicly via /display/qr?q=<queue_id>
- * Fetches the QR code blob from the public endpoint (no auth required).
- */
 export default function QRDisplay() {
     const [searchParams] = useSearchParams();
     const queueId = searchParams.get('q');
@@ -36,7 +34,6 @@ export default function QRDisplay() {
             setQueueInfo(infoRes.data);
             setQueueSize(statusRes.data.queue_size);
 
-            // Fetch dynamic QR logic (code and TTL)
             const qrRes = await axios.get(`${API_BASE}/queue/${queueId}/current-qr`);
             const fullUrl = `${window.location.origin}${qrRes.data.url}`;
             setQrData({ url: fullUrl, expires_in: qrRes.data.expires_in });
@@ -44,7 +41,6 @@ export default function QRDisplay() {
             setStatus('ready');
 
             if (qrRes.data.rotation_enabled && qrRes.data.expires_in) {
-                // Buffer to update 1 sec before it expires
                 if (rotationTimer.current) clearTimeout(rotationTimer.current);
                 rotationTimer.current = setTimeout(fetchData, Math.max((qrRes.data.expires_in - 1) * 1000, 1000));
             }
@@ -58,26 +54,20 @@ export default function QRDisplay() {
         return () => { if (rotationTimer.current) clearTimeout(rotationTimer.current); };
     }, [queueId, fetchData]);
 
-    // WebSocket to update queue size in real time
-    useEffect(() => {
-        if (!queueId) return;
-        const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-        const ws = new WebSocket(`${protocol}://${location.host}/api/v1/queue/${queueId}/ws`);
-        ws.onmessage = async () => {
-            try {
-                const res = await axios.get(`${API_BASE}/queue/${queueId}/status`);
-                setQueueSize(res.data.queue_size);
-            } catch { /* ignore */ }
-        };
-        return () => ws.close();
-    }, [queueId]);
+    useQueueWebSocket(queueId, useCallback(async () => {
+        try {
+            const res = await axios.get(`${API_BASE}/queue/${queueId}/status`);
+            setQueueSize(res.data.queue_size);
+        } catch { /* ignore */ }
+    }, [queueId]));
 
     if (status === 'error') {
         return (
-            <div className="" style={fullscreenStyle}>
+            <div style={shellStyle}>
                 <div style={{ textAlign: 'center' }}>
-                    <h1 style={{ fontSize: '4rem', marginBottom: 16 }}>⚠️</h1>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '1.2rem' }}>Queue not found.</p>
+                    <p style={{ fontSize: 'clamp(1rem, 2vw, 1.3rem)', color: 'var(--text-muted)' }}>
+                        Fila nao encontrada
+                    </p>
                 </div>
             </div>
         );
@@ -85,77 +75,155 @@ export default function QRDisplay() {
 
     if (status === 'loading') {
         return (
-            <div className="" style={fullscreenStyle}>
-                <span className="spinner" role="status" aria-label="Carregando" style={{ width: 48, height: 48, borderWidth: 4 }} />
+            <div style={shellStyle}>
+                <span className="spinner" role="status" aria-label="Carregando"
+                    style={{ width: 40, height: 40, borderWidth: 3 }} />
             </div>
         );
     }
 
-    return (
-        <div className="" style={fullscreenStyle}>
-            <div style={{ textAlign: 'center', padding: 24 }}>
-                {/* Queue name */}
-                <h1 className="heading-lg" style={{ fontSize: 'clamp(2rem, 5vw, 4rem)', marginBottom: 8 }}>
-                    {queueInfo?.name}
-                </h1>
+    const branding = queueInfo?.branding;
+    const primaryColor = branding?.primary_color || 'var(--accent-primary)';
+    const accentColor = branding?.accent_color || 'var(--accent-success)';
 
-                {/* Subtitle */}
-                <p style={{ color: 'var(--text-secondary)', fontSize: 'clamp(1rem, 2vw, 1.4rem)', marginBottom: 40 }}>
-                    Escaneie o QR Code para entrar na fila
-                </p>
+    const pageStyle: React.CSSProperties = {
+        ...shellStyle,
+        ...(branding?.background_color ? { background: branding.background_color } : {}),
+    };
+
+    const hasBrandingHeader = branding && (branding.logo_url || branding.company_name);
+
+    return (
+        <div style={pageStyle}>
+            {/* Thin accent bar at top */}
+            <div style={{
+                position: 'absolute', top: 0, left: 0, right: 0,
+                height: 4, background: primaryColor,
+            }} />
+
+            <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', flex: 1,
+                width: '100%', maxWidth: 560,
+                padding: 'clamp(24px, 4vh, 48px) 24px',
+                gap: 'clamp(20px, 3vh, 36px)',
+            }}>
+                {/* Branding + Queue name */}
+                <div style={{ textAlign: 'center', width: '100%' }}>
+                    {hasBrandingHeader && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            gap: 12, marginBottom: 'clamp(8px, 1.5vh, 16px)',
+                        }}>
+                            {branding.logo_url && (
+                                <img
+                                    src={branding.logo_url}
+                                    alt=""
+                                    style={{
+                                        height: 'clamp(32px, 5vh, 52px)',
+                                        maxWidth: 180, objectFit: 'contain',
+                                    }}
+                                />
+                            )}
+                            {branding.company_name && (
+                                <span style={{
+                                    fontSize: 'clamp(0.85rem, 1.5vw, 1.1rem)',
+                                    fontWeight: 600, color: 'var(--text-secondary)',
+                                    letterSpacing: '-0.01em',
+                                }}>
+                                    {branding.company_name}
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    <h1 style={{
+                        fontSize: 'clamp(1.5rem, 4vw, 2.5rem)',
+                        fontWeight: 700, letterSpacing: '-0.025em',
+                        color: 'var(--text-primary)', lineHeight: 1.15,
+                        margin: 0,
+                    }}>
+                        {queueInfo?.name}
+                    </h1>
+
+                    <p style={{
+                        fontSize: 'clamp(0.85rem, 1.5vw, 1.05rem)',
+                        color: 'var(--text-muted)', marginTop: 6,
+                        fontWeight: 400,
+                    }}>
+                        Escaneie para entrar na fila
+                    </p>
+                </div>
 
                 {/* QR Code */}
                 {qrData && (
                     <div style={{
-                        display: 'inline-block', padding: 20,
-                        background: 'white', borderRadius: 24,
-                        boxShadow: 'var(--shadow-raised)',
-                        marginBottom: 40
+                        background: '#fff',
+                        padding: 'clamp(16px, 2.5vw, 28px)',
+                        borderRadius: 'clamp(12px, 2vw, 20px)',
+                        boxShadow: '0 2px 24px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)',
+                        lineHeight: 0,
                     }}>
                         <QRCodeSVG
                             id="qr-display-img"
                             value={qrData.url}
                             size={320}
-                            style={{ display: 'block', width: 'clamp(200px, 30vw, 360px)', height: 'auto' }}
+                            style={{
+                                display: 'block',
+                                width: 'clamp(200px, 28vw, 320px)',
+                                height: 'auto',
+                            }}
                         />
                     </div>
                 )}
 
-                {/* Live queue counter */}
-                <div style={{
-                    display: 'inline-flex', flexDirection: 'column', alignItems: 'center',
-                    gap: 4, background: 'var(--bg-card)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-lg)', padding: '16px 40px'
+                {/* Queue counter */}
+                <div data-testid="qr-queue-counter" style={{
+                    display: 'flex', alignItems: 'baseline',
+                    gap: 10, justifyContent: 'center',
                 }}>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                        Aguardando agora
-                    </span>
                     <span className="tabular" style={{
-                        fontSize: 'clamp(2.5rem, 6vw, 5rem)', fontWeight: 800, lineHeight: 1,
-                        color: queueSize === 0 ? 'var(--accent-success)' : 'var(--text-primary)'
+                        fontSize: 'clamp(2.5rem, 6vw, 4rem)',
+                        fontWeight: 800, lineHeight: 1,
+                        color: queueSize === 0 ? accentColor : primaryColor,
+                        letterSpacing: '-0.03em',
                     }}>
                         {queueSize ?? '—'}
                     </span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        {queueSize === 0 ? 'ninguém esperando' : queueSize === 1 ? 'paciente aguardando' : 'pacientes aguardando'}
+                    <span style={{
+                        fontSize: 'clamp(0.85rem, 1.4vw, 1rem)',
+                        color: 'var(--text-muted)', fontWeight: 500,
+                    }}>
+                        {queueSize === 0
+                            ? 'ninguem esperando'
+                            : queueSize === 1
+                                ? 'na fila'
+                                : 'na fila'}
                     </span>
                 </div>
             </div>
 
             {/* Footer */}
-            <div style={{ position: 'absolute', bottom: 24, color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+            <div style={{
+                paddingBottom: 'clamp(16px, 2vh, 28px)',
+                color: 'var(--text-muted)',
+                fontSize: '0.7rem', letterSpacing: '0.04em',
+                opacity: 0.6,
+            }}>
                 powered by Remote Queue
             </div>
         </div>
     );
 }
 
-const fullscreenStyle: React.CSSProperties = {
-    minHeight: '100vh', width: '100%',
+const shellStyle: React.CSSProperties = {
+    minHeight: '100vh',
+    width: '100%',
     background: 'var(--bg-primary)',
-    display: 'flex', flexDirection: 'column',
-    alignItems: 'center', justifyContent: 'center',
-    position: 'relative', overflow: 'hidden',
-    fontFamily: 'inherit'
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
 };
